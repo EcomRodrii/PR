@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>LamineResell</title>
+  <link rel="stylesheet" href="popup.css"/>
+</head>
+<body>
+
+  <!-- ══ TOP BAR ══════════════════════════════════════════════
+       Una sola línea con todo lo esencial
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="topbar">
+    <div class="tb-brand">
+      <span class="tb-logo">⬡</span>
+      <span class="tb-name">LAMINE<em>RESELL</em></span>
+    </div>
+    <div class="tb-kpis">
+      <span class="kv" id="k-total">0</span><span class="kl">DET</span>
+      <span class="kd">·</span>
+      <span class="kv green" id="k-active">0</span><span class="kl">ACT</span>
+      <span class="kd">·</span>
+      <span class="kv amber" id="k-sold">0</span><span class="kl">SOLD</span>
+      <span class="kd">·</span>
+      <span class="kv blue" id="k-conv">0%</span>
+    </div>
+    <div class="tb-right">
+      <span class="live-dot" id="live-dot"></span>
+      <button class="tb-dash" id="open-dashboard" title="Dashboard">⊞</button>
+    </div>
+  </div>
+
+  <!-- ══ STATUS LINE ═══════════════════════════════════════════
+       Campaña + próximo ciclo + último scan
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="statusline">
+    <span class="sl-status" id="sl-status">PAUSADO</span>
+    <span class="sl-sep">│</span>
+    <span class="sl-campaign" id="sl-campaign">sin campaña</span>
+    <span class="sl-sep">│</span>
+    <span class="sl-meta">próx&nbsp;<span id="sl-cycle" class="mono">—</span></span>
+    <span class="sl-sep">│</span>
+    <span class="sl-meta">scan&nbsp;<span id="sl-scan" class="mono">—</span></span>
+    <span class="sl-spacer"></span>
+    <span class="sl-rev" id="sl-rev"></span>
+  </div>
+
+  <!-- ══ COMMAND BAR ═══════════════════════════════════════════ -->
+  <div class="cmdbar">
+    <button class="cmd-run"  id="start-monitor">▶ INICIAR</button>
+    <button class="cmd-stop" id="stop-monitor">■ PARAR</button>
+    <span class="cmd-div"></span>
+    <button class="cmd"      id="detect-now">⟳ DETECT</button>
+    <button class="cmd"      id="track-now">◎ TRACK</button>
+    <button class="cmd hi"   id="scan-all">⚡ SCAN ALL</button>
+  </div>
+
+  <!-- ══ CONTENT ═══════════════════════════════════════════════ -->
+  <div class="content">
+
+    <!-- ─ PAGE: OVERVIEW ─────────────────────────────────────── -->
+    <div class="page active" id="page-overview">
+      <div class="feed-hdr">
+        <span>ACTIVIDAD RECIENTE</span>
+        <span class="feed-cnt" id="feed-cnt"></span>
+      </div>
+      <div id="activity-feed">
+        <div class="row-empty">Sin actividad todavía — inicia el monitor</div>
+      </div>
+    </div>
+
+    <!-- ─ PAGE: ITEMS ─────────────────────────────────────────── -->
+    <div class="page" id="page-items">
+      <div class="filter-row">
+        <div class="search-wrap">
+          <span class="search-ico">⌕</span>
+          <input id="items-search" type="text" placeholder="buscar título o modelo…" autocomplete="off"/>
+        </div>
+        <select id="items-sort">
+          <option value="newest">Nuevos</option>
+          <option value="priority">Prioridad</option>
+          <option value="likes">Likes ↓</option>
+          <option value="price-desc">Precio ↓</option>
+          <option value="price-asc">Precio ↑</option>
+        </select>
+      </div>
+      <div id="items-list">
+        <div class="row-empty">Sin items activos</div>
+      </div>
+    </div>
+
+    <!-- ─ PAGE: VENTAS ─────────────────────────────────────────── -->
+    <div class="page" id="page-sales">
+      <div class="an-strip">
+        <div class="an-block">
+          <div class="an-val green" id="an-revenue">—</div>
+          <div class="an-lbl">INGRESOS</div>
+        </div>
+        <div class="an-div"></div>
+        <div class="an-block">
+          <div class="an-val" id="an-avg">—</div>
+          <div class="an-lbl">PRECIO MEDIO</div>
+        </div>
+        <div class="an-div"></div>
+        <div class="an-block">
+          <div class="an-val amber" id="an-tts">—</div>
+          <div class="an-lbl">T. VENTA</div>
+        </div>
+      </div>
+
+      <div class="section-hdr">TOP MODELOS</div>
+      <div id="models-chart" class="models-wrap">
+        <div class="row-empty">Sin datos</div>
+      </div>
+
+      <div class="section-hdr">HISTORIAL</div>
+      <div id="sales-list">
+        <div class="row-empty">Sin ventas todavía</div>
+      </div>
+    </div>
+
+    <!-- ─ PAGE: CONFIG ─────────────────────────────────────────── -->
+    <div class="page" id="page-config">
+
+      <div class="cfg-section">CAMPAÑA</div>
+      <div class="cfg-row">
+        <label>Producto</label>
+        <input class="cfg-inp" id="product-name" type="text" placeholder="rayban, carhartt, jordan…"/>
+      </div>
+      <div class="cfg-row tall">
+        <label>URLs <em>(1 por línea)</em></label>
+        <textarea class="cfg-inp" id="search-urls" rows="3"
+          placeholder="https://www.vinted.es/catalog?search_text=…"></textarea>
+      </div>
+
+      <div class="cfg-section">FILTROS DE DETECCIÓN</div>
+      <div class="cfg-row inline">
+        <label>Páginas a escanear</label>
+        <select class="cfg-inp sm" id="scan-pages">
+          <option value="1">1 página (96 items)</option>
+          <option value="2" selected>2 páginas (192 items)</option>
+          <option value="3">3 páginas (288 items)</option>
+          <option value="4">4 páginas (384 items)</option>
+          <option value="5">5 páginas (480 items)</option>
+        </select>
+      </div>
+      <div class="cfg-row inline">
+        <label>Precio mínimo (€)</label>
+        <input class="cfg-inp sm" id="price-min" type="number" min="0" step="0.50" placeholder="0"/>
+      </div>
+      <div class="cfg-row inline">
+        <label>Precio máximo (€)</label>
+        <input class="cfg-inp sm" id="price-max" type="number" min="0" step="0.50" placeholder="sin límite"/>
+      </div>
+
+      <div class="cfg-btns">
+        <button class="cbtn primary" id="save-config">GUARDAR CONFIG</button>
+        <button class="cbtn ghost" id="export-csv">↓ CSV</button>
+      </div>
+
+      <div class="cfg-section danger-sec">ZONA PELIGROSA</div>
+      <div class="cfg-btns">
+        <button class="cbtn ghost" id="clear-sold">Limpiar vendidos</button>
+        <button class="cbtn danger" id="reset-all">RESET TOTAL</button>
+      </div>
+
+    </div><!-- /config -->
+
+  </div><!-- /content -->
+
+  <!-- ══ BOTTOM NAV ════════════════════════════════════════════ -->
+  <nav class="botnav">
+    <button class="bnav active" data-page="overview">
+      <span class="bnav-ico">◈</span>
+      <span>OVERVIEW</span>
+    </button>
+    <button class="bnav" data-page="items">
+      <span class="bnav-ico">▤</span>
+      <span>ITEMS <span class="bnav-badge" id="bn-items">0</span></span>
+    </button>
+    <button class="bnav" data-page="sales">
+      <span class="bnav-ico">▲</span>
+      <span>VENTAS <span class="bnav-badge sold" id="bn-sales">0</span></span>
+    </button>
+    <button class="bnav" data-page="config">
+      <span class="bnav-ico">⚙</span>
+      <span>CONFIG</span>
+    </button>
+  </nav>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
