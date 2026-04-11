@@ -8,186 +8,297 @@
 </head>
 <body>
 
-  <!-- ══ TOP BAR ══════════════════════════════════════════════
-       Una sola línea con todo lo esencial
-  ══════════════════════════════════════════════════════════════ -->
-  <div class="topbar">
-    <div class="tb-brand">
-      <span class="tb-logo">⬡</span>
-      <span class="tb-name">LAMINE<em>RESELL</em></span>
+  <!-- ══ SIDEBAR ══════════════════════════════════════════════ -->
+  <aside class="sb">
+    <div class="sb-logo">
+      <svg viewBox="0 0 28 28" fill="none">
+        <rect width="28" height="28" rx="8" fill="#7c3aed"/>
+        <path d="M14 5L5 10v8l9 5 9-5v-8L14 5z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M14 5v13M5 10l9 5 9-5" stroke="#fff" stroke-width="1.3" stroke-linejoin="round"/>
+      </svg>
     </div>
-    <div class="tb-kpis">
-      <span class="kv" id="k-total">0</span><span class="kl">DET</span>
-      <span class="kd">·</span>
-      <span class="kv green" id="k-active">0</span><span class="kl">ACT</span>
-      <span class="kd">·</span>
-      <span class="kv amber" id="k-sold">0</span><span class="kl">SOLD</span>
-      <span class="kd">·</span>
-      <span class="kv blue" id="k-conv">0%</span>
+
+    <nav class="sb-nav">
+      <button class="sb-btn active" data-page="overview" title="Overview">
+        <svg viewBox="0 0 20 20" fill="currentColor">
+          <rect x="2" y="2" width="7" height="7" rx="1.5"/>
+          <rect x="11" y="2" width="7" height="7" rx="1.5"/>
+          <rect x="2" y="11" width="7" height="7" rx="1.5"/>
+          <rect x="11" y="11" width="7" height="7" rx="1.5"/>
+        </svg>
+      </button>
+      <button class="sb-btn" data-page="items" title="Items activos">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <line x1="3" y1="5" x2="17" y2="5"/>
+          <line x1="3" y1="10" x2="17" y2="10"/>
+          <line x1="3" y1="15" x2="11" y2="15"/>
+        </svg>
+        <span class="sb-count" id="sb-count-items">0</span>
+      </button>
+      <button class="sb-btn" data-page="sales" title="Ventas">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="2,15 6,9 9,12 13,6 18,10"/>
+        </svg>
+        <span class="sb-count sold" id="sb-count-sales">0</span>
+      </button>
+      <button class="sb-btn" data-page="config" title="Configuración">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <circle cx="10" cy="10" r="2.5"/>
+          <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.1 4.1l1.5 1.5M14.4 14.4l1.5 1.5M14.4 5.6l-1.5 1.5M5.6 14.4l-1.5 1.5"/>
+        </svg>
+      </button>
+    </nav>
+
+    <div class="sb-bottom">
+      <div class="sb-status-dot" id="sb-dot" title="Estado monitor"></div>
+      <button class="sb-btn sm" id="open-dashboard" title="Dashboard completo">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 3h6v6M9 11L17 3M13 11v6H3V7h6"/>
+        </svg>
+      </button>
     </div>
-    <div class="tb-right">
-      <span class="live-dot" id="live-dot"></span>
-      <button class="tb-dash" id="open-dashboard" title="Dashboard">⊞</button>
-    </div>
-  </div>
+  </aside>
 
-  <!-- ══ STATUS LINE ═══════════════════════════════════════════
-       Campaña + próximo ciclo + último scan
-  ══════════════════════════════════════════════════════════════ -->
-  <div class="statusline">
-    <span class="sl-status" id="sl-status">PAUSADO</span>
-    <span class="sl-sep">│</span>
-    <span class="sl-campaign" id="sl-campaign">sin campaña</span>
-    <span class="sl-sep">│</span>
-    <span class="sl-meta">próx&nbsp;<span id="sl-cycle" class="mono">—</span></span>
-    <span class="sl-sep">│</span>
-    <span class="sl-meta">scan&nbsp;<span id="sl-scan" class="mono">—</span></span>
-    <span class="sl-spacer"></span>
-    <span class="sl-rev" id="sl-rev"></span>
-  </div>
+  <!-- ══ MAIN ═════════════════════════════════════════════════ -->
+  <div class="main">
 
-  <!-- ══ COMMAND BAR ═══════════════════════════════════════════ -->
-  <div class="cmdbar">
-    <button class="cmd-run"  id="start-monitor">▶ INICIAR</button>
-    <button class="cmd-stop" id="stop-monitor">■ PARAR</button>
-    <span class="cmd-div"></span>
-    <button class="cmd"      id="detect-now">⟳ DETECT</button>
-    <button class="cmd"      id="track-now">◎ TRACK</button>
-    <button class="cmd hi"   id="scan-all">⚡ SCAN ALL</button>
-  </div>
-
-  <!-- ══ CONTENT ═══════════════════════════════════════════════ -->
-  <div class="content">
-
-    <!-- ─ PAGE: OVERVIEW ─────────────────────────────────────── -->
+    <!-- ─── PAGE: OVERVIEW ──────────────────────────────────── -->
     <div class="page active" id="page-overview">
-      <div class="feed-hdr">
-        <span>ACTIVIDAD RECIENTE</span>
-        <span class="feed-cnt" id="feed-cnt"></span>
-      </div>
-      <div id="activity-feed">
-        <div class="row-empty">Sin actividad todavía — inicia el monitor</div>
-      </div>
-    </div>
 
-    <!-- ─ PAGE: ITEMS ─────────────────────────────────────────── -->
+      <!-- Page header -->
+      <div class="page-hdr">
+        <div class="page-hdr-left">
+          <span class="page-title">Key KPI</span>
+          <span class="status-badge" id="status-badge">PAUSADO</span>
+        </div>
+        <div class="page-hdr-right">
+          <span class="campaign-chip" id="campaign-chip">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="6" r="4"/><circle cx="6" cy="6" r="1.5" fill="currentColor"/></svg>
+            <span id="campaign-name">sin campaña</span>
+          </span>
+          <span class="cycle-chip mono" id="cycle-chip">—</span>
+        </div>
+      </div>
+
+      <!-- KPI grid: 3 × 2 -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-icon purple">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 13V6l6-3 6 3v7"/><rect x="6" y="8" width="4" height="5"/></svg>
+          </div>
+          <div class="kpi-body">
+            <div class="kpi-lbl">Ingresos est.</div>
+            <div class="kpi-val" id="kpi-revenue">€0</div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon teal">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,12 4,8 7,10 10,5 15,8"/></svg>
+          </div>
+          <div class="kpi-body">
+            <div class="kpi-lbl">Conversión</div>
+            <div class="kpi-val teal" id="kpi-conv">0%</div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon amber">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><polyline points="8,4 8,8 11,10"/></svg>
+          </div>
+          <div class="kpi-body">
+            <div class="kpi-lbl">T. medio venta</div>
+            <div class="kpi-val amber" id="kpi-tts">—</div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon gray">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="8"/><circle cx="8" cy="11" r=".5" fill="currentColor"/></svg>
+          </div>
+          <div class="kpi-body">
+            <div class="kpi-lbl">Detectados</div>
+            <div class="kpi-val" id="kpi-total">0</div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon green">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><circle cx="8" cy="8" r="6" stroke-dasharray="2 2"/></svg>
+          </div>
+          <div class="kpi-body">
+            <div class="kpi-lbl">Activos</div>
+            <div class="kpi-val green" id="kpi-active">0</div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon orange">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-4 3 2 3-5 2 3"/><circle cx="13" cy="4" r="2" fill="currentColor" stroke="none"/></svg>
+          </div>
+          <div class="kpi-body">
+            <div class="kpi-lbl">Vendidos</div>
+            <div class="kpi-val orange" id="kpi-sold">0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action bar -->
+      <div class="action-bar">
+        <button class="btn-primary" id="start-monitor">
+          <svg viewBox="0 0 12 12" fill="currentColor"><polygon points="2,1 11,6 2,11"/></svg>
+          Iniciar monitor
+        </button>
+        <button class="btn-danger" id="stop-monitor">
+          <svg viewBox="0 0 12 12" fill="currentColor"><rect x="2" y="2" width="8" height="8" rx="1"/></svg>
+          Parar
+        </button>
+        <div style="flex:1"></div>
+        <button class="btn-ghost" id="detect-now" title="Detectar nuevos">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6" cy="6" r="4"/><line x1="9" y1="9" x2="13" y2="13"/></svg>
+        </button>
+        <button class="btn-ghost" id="track-now" title="Analizar items">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><circle cx="7" cy="7" r="2"/></svg>
+        </button>
+        <button class="btn-ghost accent" id="scan-all" title="Scan completo">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 7a6 6 0 0111-3M13 7a6 6 0 01-11 3"/><polyline points="10,1 13,4 10,7"/><polyline points="4,7 1,10 4,13"/></svg>
+          Scan
+        </button>
+      </div>
+
+      <!-- Activity table header -->
+      <div class="tbl-header">
+        <span class="tbl-hcell" style="flex:1">PRODUCTO</span>
+        <span class="tbl-hcell w60">STATUS</span>
+        <span class="tbl-hcell w50 right">PRECIO</span>
+        <span class="tbl-hcell w40 right">HACE</span>
+      </div>
+
+      <!-- Activity feed as table rows -->
+      <div class="tbl-body" id="activity-feed">
+        <div class="tbl-empty">Sin actividad — inicia el monitor para empezar</div>
+      </div>
+
+    </div><!-- /overview -->
+
+    <!-- ─── PAGE: ITEMS ──────────────────────────────────────── -->
     <div class="page" id="page-items">
-      <div class="filter-row">
-        <div class="search-wrap">
-          <span class="search-ico">⌕</span>
-          <input id="items-search" type="text" placeholder="buscar título o modelo…" autocomplete="off"/>
+      <div class="page-hdr">
+        <span class="page-title">Items activos</span>
+        <div class="page-hdr-right">
+          <div class="search-box">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5.5" cy="5.5" r="3.5"/><line x1="8.5" y1="8.5" x2="13" y2="13"/></svg>
+            <input id="items-search" type="text" placeholder="Buscar…" autocomplete="off"/>
+          </div>
+          <select id="items-sort" title="Ordenar">
+            <option value="newest">Nuevos</option>
+            <option value="priority">Prioridad</option>
+            <option value="likes">Likes</option>
+            <option value="price-desc">Precio ↓</option>
+            <option value="price-asc">Precio ↑</option>
+          </select>
         </div>
-        <select id="items-sort">
-          <option value="newest">Nuevos</option>
-          <option value="priority">Prioridad</option>
-          <option value="likes">Likes ↓</option>
-          <option value="price-desc">Precio ↓</option>
-          <option value="price-asc">Precio ↑</option>
-        </select>
       </div>
-      <div id="items-list">
-        <div class="row-empty">Sin items activos</div>
+
+      <div class="tbl-header">
+        <span class="tbl-hcell" style="flex:1">PRODUCTO</span>
+        <span class="tbl-hcell w64">STATUS</span>
+        <span class="tbl-hcell w44 right">♥</span>
+        <span class="tbl-hcell w56 right">PRECIO</span>
+      </div>
+      <div class="tbl-body" id="items-list">
+        <div class="tbl-empty">Sin items activos</div>
       </div>
     </div>
 
-    <!-- ─ PAGE: VENTAS ─────────────────────────────────────────── -->
+    <!-- ─── PAGE: VENTAS ─────────────────────────────────────── -->
     <div class="page" id="page-sales">
-      <div class="an-strip">
-        <div class="an-block">
-          <div class="an-val green" id="an-revenue">—</div>
-          <div class="an-lbl">INGRESOS</div>
+      <div class="page-hdr">
+        <span class="page-title">Ventas</span>
+      </div>
+
+      <!-- Analytics mini-cards -->
+      <div class="an-row">
+        <div class="an-card">
+          <div class="an-val purple" id="an-revenue">—</div>
+          <div class="an-lbl">Ingresos totales</div>
         </div>
-        <div class="an-div"></div>
-        <div class="an-block">
+        <div class="an-card">
           <div class="an-val" id="an-avg">—</div>
-          <div class="an-lbl">PRECIO MEDIO</div>
+          <div class="an-lbl">Precio medio</div>
         </div>
-        <div class="an-div"></div>
-        <div class="an-block">
-          <div class="an-val amber" id="an-tts">—</div>
-          <div class="an-lbl">T. VENTA</div>
+        <div class="an-card">
+          <div class="an-val teal" id="an-tts">—</div>
+          <div class="an-lbl">Tiempo venta</div>
         </div>
       </div>
 
-      <div class="section-hdr">TOP MODELOS</div>
-      <div id="models-chart" class="models-wrap">
-        <div class="row-empty">Sin datos</div>
+      <!-- Top models -->
+      <div class="section-label">Top modelos vendidos</div>
+      <div class="models-wrap" id="models-chart">
+        <div class="tbl-empty">Sin datos</div>
       </div>
 
-      <div class="section-hdr">HISTORIAL</div>
-      <div id="sales-list">
-        <div class="row-empty">Sin ventas todavía</div>
+      <!-- Sales table -->
+      <div class="tbl-header">
+        <span class="tbl-hcell" style="flex:1">PRODUCTO</span>
+        <span class="tbl-hcell w70 right">PRECIO</span>
+        <span class="tbl-hcell w50 right">T.VENTA</span>
+        <span class="tbl-hcell w40 right">HACE</span>
+      </div>
+      <div class="tbl-body" id="sales-list">
+        <div class="tbl-empty">Sin ventas todavía</div>
       </div>
     </div>
 
-    <!-- ─ PAGE: CONFIG ─────────────────────────────────────────── -->
+    <!-- ─── PAGE: CONFIG ─────────────────────────────────────── -->
     <div class="page" id="page-config">
-
-      <div class="cfg-section">CAMPAÑA</div>
-      <div class="cfg-row">
-        <label>Producto</label>
-        <input class="cfg-inp" id="product-name" type="text" placeholder="rayban, carhartt, jordan…"/>
-      </div>
-      <div class="cfg-row tall">
-        <label>URLs <em>(1 por línea)</em></label>
-        <textarea class="cfg-inp" id="search-urls" rows="3"
-          placeholder="https://www.vinted.es/catalog?search_text=…"></textarea>
+      <div class="page-hdr">
+        <span class="page-title">Configuración</span>
       </div>
 
-      <div class="cfg-section">FILTROS DE DETECCIÓN</div>
-      <div class="cfg-row inline">
-        <label>Páginas a escanear</label>
-        <select class="cfg-inp sm" id="scan-pages">
-          <option value="1">1 página (96 items)</option>
-          <option value="2" selected>2 páginas (192 items)</option>
-          <option value="3">3 páginas (288 items)</option>
-          <option value="4">4 páginas (384 items)</option>
-          <option value="5">5 páginas (480 items)</option>
-        </select>
-      </div>
-      <div class="cfg-row inline">
-        <label>Precio mínimo (€)</label>
-        <input class="cfg-inp sm" id="price-min" type="number" min="0" step="0.50" placeholder="0"/>
-      </div>
-      <div class="cfg-row inline">
-        <label>Precio máximo (€)</label>
-        <input class="cfg-inp sm" id="price-max" type="number" min="0" step="0.50" placeholder="sin límite"/>
-      </div>
+      <div class="cfg-body">
+        <div class="cfg-group">
+          <label>Producto / Campaña</label>
+          <input class="cfg-inp" id="product-name" type="text" placeholder="ej: rayban, carhartt, jordan…"/>
+        </div>
+        <div class="cfg-group">
+          <label>URLs de búsqueda <em>— una por línea</em></label>
+          <textarea class="cfg-inp" id="search-urls" rows="3"
+            placeholder="https://www.vinted.es/catalog?search_text=…"></textarea>
+        </div>
 
-      <div class="cfg-btns">
-        <button class="cbtn primary" id="save-config">GUARDAR CONFIG</button>
-        <button class="cbtn ghost" id="export-csv">↓ CSV</button>
+        <div class="cfg-divider">Filtros de detección</div>
+        <div class="cfg-inline-row">
+          <div class="cfg-group sm">
+            <label>Páginas / URL</label>
+            <select class="cfg-inp" id="scan-pages">
+              <option value="1">1 pág · 96 items</option>
+              <option value="2" selected>2 pág · 192 items</option>
+              <option value="3">3 pág · 288 items</option>
+              <option value="4">4 pág · 384 items</option>
+              <option value="5">5 pág · 480 items</option>
+            </select>
+          </div>
+          <div class="cfg-group sm">
+            <label>Precio mín (€)</label>
+            <input class="cfg-inp" id="price-min" type="number" min="0" step="1" placeholder="0"/>
+          </div>
+          <div class="cfg-group sm">
+            <label>Precio máx (€)</label>
+            <input class="cfg-inp" id="price-max" type="number" min="0" step="1" placeholder="∞"/>
+          </div>
+        </div>
+
+        <div class="cfg-actions">
+          <button class="btn-primary sm" id="save-config">Guardar configuración</button>
+          <button class="btn-ghost sm" id="export-csv">↓ Exportar CSV</button>
+        </div>
+
+        <div class="cfg-divider danger">Zona peligrosa</div>
+        <div class="cfg-actions">
+          <button class="btn-ghost sm" id="clear-sold">Limpiar vendidos</button>
+          <button class="btn-danger sm" id="reset-all">Reset total</button>
+        </div>
       </div>
+    </div>
 
-      <div class="cfg-section danger-sec">ZONA PELIGROSA</div>
-      <div class="cfg-btns">
-        <button class="cbtn ghost" id="clear-sold">Limpiar vendidos</button>
-        <button class="cbtn danger" id="reset-all">RESET TOTAL</button>
-      </div>
-
-    </div><!-- /config -->
-
-  </div><!-- /content -->
-
-  <!-- ══ BOTTOM NAV ════════════════════════════════════════════ -->
-  <nav class="botnav">
-    <button class="bnav active" data-page="overview">
-      <span class="bnav-ico">◈</span>
-      <span>OVERVIEW</span>
-    </button>
-    <button class="bnav" data-page="items">
-      <span class="bnav-ico">▤</span>
-      <span>ITEMS <span class="bnav-badge" id="bn-items">0</span></span>
-    </button>
-    <button class="bnav" data-page="sales">
-      <span class="bnav-ico">▲</span>
-      <span>VENTAS <span class="bnav-badge sold" id="bn-sales">0</span></span>
-    </button>
-    <button class="bnav" data-page="config">
-      <span class="bnav-ico">⚙</span>
-      <span>CONFIG</span>
-    </button>
-  </nav>
+  </div><!-- /main -->
 
   <script src="popup.js" type="module"></script>
 </body>
