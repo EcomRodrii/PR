@@ -11,49 +11,63 @@
   <!-- ══ SIDEBAR ══════════════════════════════════════════════ -->
   <aside class="sb">
     <div class="sb-logo">
-      <svg viewBox="0 0 28 28" fill="none">
-        <rect width="28" height="28" rx="8" fill="#7c3aed"/>
-        <path d="M14 5L5 10v8l9 5 9-5v-8L14 5z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
-        <path d="M14 5v13M5 10l9 5 9-5" stroke="#fff" stroke-width="1.3" stroke-linejoin="round"/>
+      <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="32" height="32" rx="9" fill="#7c3aed"/>
+        <!-- L -->
+        <path d="M8 9v14h7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- R -->
+        <path d="M17 9h4.5a3 3 0 010 6H17m0 0l5 8" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </div>
 
     <nav class="sb-nav">
+      <!-- Overview: LayoutDashboard -->
       <button class="sb-btn active" data-page="overview" title="Overview">
-        <svg viewBox="0 0 20 20" fill="currentColor">
-          <rect x="2" y="2" width="7" height="7" rx="1.5"/>
-          <rect x="11" y="2" width="7" height="7" rx="1.5"/>
-          <rect x="2" y="11" width="7" height="7" rx="1.5"/>
-          <rect x="11" y="11" width="7" height="7" rx="1.5"/>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="7" height="8" rx="1.5"/>
+          <rect x="11" y="2" width="7" height="5" rx="1.5"/>
+          <rect x="11" y="9" width="7" height="9" rx="1.5"/>
+          <rect x="2" y="12" width="7" height="6" rx="1.5"/>
         </svg>
       </button>
+      <!-- Items: Package list -->
       <button class="sb-btn" data-page="items" title="Items activos">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-          <line x1="3" y1="5" x2="17" y2="5"/>
-          <line x1="3" y1="10" x2="17" y2="10"/>
-          <line x1="3" y1="15" x2="11" y2="15"/>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 5h3v3H2zM2 11h3v3H2z"/>
+          <line x1="8" y1="6.5" x2="18" y2="6.5"/>
+          <line x1="8" y1="12.5" x2="18" y2="12.5"/>
         </svg>
         <span class="sb-count" id="sb-count-items">0</span>
       </button>
+      <!-- Sales: TrendingUp -->
       <button class="sb-btn" data-page="sales" title="Ventas">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="2,15 6,9 9,12 13,6 18,10"/>
+          <polyline points="2,14 7,8 11,11 16,5"/>
+          <polyline points="13,5 16,5 16,8"/>
         </svg>
         <span class="sb-count sold" id="sb-count-sales">0</span>
       </button>
+      <!-- Config: SlidersHorizontal -->
       <button class="sb-btn" data-page="config" title="Configuración">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-          <circle cx="10" cy="10" r="2.5"/>
-          <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.1 4.1l1.5 1.5M14.4 14.4l1.5 1.5M14.4 5.6l-1.5 1.5M5.6 14.4l-1.5 1.5"/>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="2" y1="5" x2="18" y2="5"/>
+          <line x1="2" y1="10" x2="18" y2="10"/>
+          <line x1="2" y1="15" x2="18" y2="15"/>
+          <circle cx="7" cy="5" r="1.8" fill="var(--surface)" stroke="currentColor"/>
+          <circle cx="13" cy="10" r="1.8" fill="var(--surface)" stroke="currentColor"/>
+          <circle cx="7" cy="15" r="1.8" fill="var(--surface)" stroke="currentColor"/>
         </svg>
       </button>
     </nav>
 
     <div class="sb-bottom">
       <div class="sb-status-dot" id="sb-dot" title="Estado monitor"></div>
+      <!-- ExternalLink -->
       <button class="sb-btn sm" id="open-dashboard" title="Dashboard completo">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M11 3h6v6M9 11L17 3M13 11v6H3V7h6"/>
+          <path d="M10 4H4a1 1 0 00-1 1v11a1 1 0 001 1h11a1 1 0 001-1v-6"/>
+          <path d="M14 2h4v4"/>
+          <line x1="10" y1="10" x2="18" y2="2"/>
         </svg>
       </button>
     </div>
@@ -73,7 +87,11 @@
         </div>
         <div class="page-hdr-right">
           <span class="campaign-chip" id="campaign-chip">
-            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="6" r="4"/><circle cx="6" cy="6" r="1.5" fill="currentColor"/></svg>
+            <!-- Tag icon -->
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 1h4l5.5 5.5a1 1 0 010 1.4l-2.6 2.6a1 1 0 01-1.4 0L1 5V1z"/>
+              <circle cx="3.5" cy="3.5" r=".8" fill="currentColor" stroke="none"/>
+            </svg>
             <span id="campaign-name">sin campaña</span>
           </span>
           <span class="cycle-chip mono" id="cycle-chip">—</span>
@@ -82,54 +100,81 @@
 
       <!-- KPI grid: 3 × 2 -->
       <div class="kpi-grid">
+        <!-- KPI: Revenue — Banknote -->
         <div class="kpi-card">
           <div class="kpi-icon purple">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 13V6l6-3 6 3v7"/><rect x="6" y="8" width="4" height="5"/></svg>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="1" y="4" width="14" height="8" rx="1.5"/>
+              <circle cx="8" cy="8" r="1.8"/>
+              <path d="M4 8h.01M12 8h.01"/>
+            </svg>
           </div>
           <div class="kpi-body">
             <div class="kpi-lbl">Ingresos est.</div>
             <div class="kpi-val" id="kpi-revenue">€0</div>
           </div>
         </div>
+        <!-- KPI: Conversion — Percent -->
         <div class="kpi-card">
           <div class="kpi-icon teal">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,12 4,8 7,10 10,5 15,8"/></svg>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="13" y1="3" x2="3" y2="13"/>
+              <circle cx="4.5" cy="4.5" r="1.5"/>
+              <circle cx="11.5" cy="11.5" r="1.5"/>
+            </svg>
           </div>
           <div class="kpi-body">
             <div class="kpi-lbl">Conversión</div>
             <div class="kpi-val teal" id="kpi-conv">0%</div>
           </div>
         </div>
+        <!-- KPI: Time to sell — Timer -->
         <div class="kpi-card">
           <div class="kpi-icon amber">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><polyline points="8,4 8,8 11,10"/></svg>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="8" cy="9" r="5.5"/>
+              <path d="M8 6.5V9l1.8 1.2"/>
+              <path d="M6 1.5h4M8 1.5v2"/>
+            </svg>
           </div>
           <div class="kpi-body">
             <div class="kpi-lbl">T. medio venta</div>
             <div class="kpi-val amber" id="kpi-tts">—</div>
           </div>
         </div>
+        <!-- KPI: Detected — ScanSearch -->
         <div class="kpi-card">
           <div class="kpi-icon gray">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="8"/><circle cx="8" cy="11" r=".5" fill="currentColor"/></svg>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="7" cy="7" r="4"/>
+              <path d="M10 10l3.5 3.5"/>
+              <path d="M3 2H1v2M13 2h2v2M1 12v2h2M13 14h2v-2"/>
+            </svg>
           </div>
           <div class="kpi-body">
             <div class="kpi-lbl">Detectados</div>
             <div class="kpi-val" id="kpi-total">0</div>
           </div>
         </div>
+        <!-- KPI: Active — Activity -->
         <div class="kpi-card">
           <div class="kpi-icon green">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><circle cx="8" cy="8" r="6" stroke-dasharray="2 2"/></svg>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="1,8 4,8 5,3 7,13 9,5 11,10 12,8 15,8"/>
+            </svg>
           </div>
           <div class="kpi-body">
             <div class="kpi-lbl">Activos</div>
             <div class="kpi-val green" id="kpi-active">0</div>
           </div>
         </div>
+        <!-- KPI: Sold — ShoppingBag -->
         <div class="kpi-card">
           <div class="kpi-icon orange">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-4 3 2 3-5 2 3"/><circle cx="13" cy="4" r="2" fill="currentColor" stroke="none"/></svg>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 3h10l1 9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12L3 3z"/>
+              <path d="M5.5 6a2.5 2.5 0 005 0"/>
+            </svg>
           </div>
           <div class="kpi-body">
             <div class="kpi-lbl">Vendidos</div>
@@ -140,23 +185,44 @@
 
       <!-- Action bar -->
       <div class="action-bar">
+        <!-- Play -->
         <button class="btn-primary" id="start-monitor">
-          <svg viewBox="0 0 12 12" fill="currentColor"><polygon points="2,1 11,6 2,11"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="2.5,1.5 10.5,6 2.5,10.5" fill="currentColor" stroke="none"/>
+          </svg>
           Iniciar monitor
         </button>
+        <!-- Stop -->
         <button class="btn-danger" id="stop-monitor">
-          <svg viewBox="0 0 12 12" fill="currentColor"><rect x="2" y="2" width="8" height="8" rx="1"/></svg>
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2.5" y="2.5" width="7" height="7" rx="1.5" fill="currentColor" stroke="none"/>
+          </svg>
           Parar
         </button>
         <div style="flex:1"></div>
+        <!-- Detect: Radar/Search -->
         <button class="btn-ghost" id="detect-now" title="Detectar nuevos">
-          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6" cy="6" r="4"/><line x1="9" y1="9" x2="13" y2="13"/></svg>
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="6" cy="6" r="3.5"/>
+            <line x1="8.5" y1="8.5" x2="12" y2="12"/>
+          </svg>
         </button>
+        <!-- Track: Target -->
         <button class="btn-ghost" id="track-now" title="Analizar items">
-          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><circle cx="7" cy="7" r="2"/></svg>
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <circle cx="7" cy="7" r="5"/>
+            <circle cx="7" cy="7" r="2.5"/>
+            <circle cx="7" cy="7" r=".8" fill="currentColor" stroke="none"/>
+          </svg>
         </button>
+        <!-- Scan all: RefreshCw -->
         <button class="btn-ghost accent" id="scan-all" title="Scan completo">
-          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 7a6 6 0 0111-3M13 7a6 6 0 01-11 3"/><polyline points="10,1 13,4 10,7"/><polyline points="4,7 1,10 4,13"/></svg>
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2.5A6 6 0 012.5 10.5"/>
+            <path d="M2 11.5A6 6 0 0111.5 3.5"/>
+            <polyline points="12,0.5 12,3.5 9,3.5"/>
+            <polyline points="2,10.5 2,13.5 5,13.5"/>
+          </svg>
           Scan
         </button>
       </div>
@@ -182,7 +248,7 @@
         <span class="page-title">Items activos</span>
         <div class="page-hdr-right">
           <div class="search-box">
-            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5.5" cy="5.5" r="3.5"/><line x1="8.5" y1="8.5" x2="13" y2="13"/></svg>
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="5.5" r="3.5"/><line x1="8.5" y1="8.5" x2="12.5" y2="12.5"/></svg>
             <input id="items-search" type="text" placeholder="Buscar…" autocomplete="off"/>
           </div>
           <select id="items-sort" title="Ordenar">

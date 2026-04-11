@@ -74,8 +74,10 @@ body {
 .sb-logo {
   width: 32px; height: 32px; margin-bottom: 10px;
   flex-shrink: 0;
+  border-radius: 9px;
+  box-shadow: 0 2px 8px rgba(124,58,237,.35), 0 1px 2px rgba(0,0,0,.12);
 }
-.sb-logo svg { width: 32px; height: 32px; }
+.sb-logo svg { width: 32px; height: 32px; display: block; }
 
 .sb-nav {
   display: flex; flex-direction: column; align-items: center;
