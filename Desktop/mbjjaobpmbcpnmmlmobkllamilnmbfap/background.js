@@ -32,19 +32,6 @@ const API_JITTER_MIN_MS = 350;         // delay mínimo entre requests
 const API_JITTER_MAX_MS = 1400;        // delay máximo entre requests
 const API_RETRY_429_MAX = 3;           // reintentos al recibir 429
 const API_RETRY_429_BASE_MS = 12000;   // espera base ante 429 (12s × backoff)
-const STARTUP_GAP_ALERT_MINUTES = 8;
-const DISCORD_EVENT_LOGS = true;
-const DISCORD_LOG_QUEUE_MAX = 160;
-const DISCORD_LOG_COOLDOWN_MS = 420;
-const VINTED_SESSION_CHECK_URL = 'https://www.vinted.es/settings/shipping';
-const VINTED_SESSION_REFRESH_MINUTES = 12;
-const VINTED_SESSION_REFRESH_PATH = '/session-refresh';
-const VINTED_SESSION_REFRESH_EXTRA_TIMEOUT_MS = 25000;
-const VINTED_SESSION_BOOTSTRAP_WAIT_MS = 10000;
-const VINTED_SESSION_POLL_TIMEOUT_MS = 26000;
-const VINTED_SESSION_POLL_INTERVAL_MS = 1200;
-const FIXED_DISCORD_WEBHOOK_URL =
-  'https://discord.com/api/webhooks/1479702020545056879/B7HJgNIKW3hW81gzBVf33UihocSV7t5MUrWBWPgKFCBL2yw0NgTa2Sg_mlQVvvtskcwp';
 const EXTENSION_VERSION = chrome.runtime.getManifest().version || '0.0.0';
 const MODEL_KEYWORDS = [
   'wayfarer',
@@ -124,8 +111,6 @@ const MODEL_EXPLOITABLE_ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 let detectRunning = false;
 let trackRunning = false;
 let monitorRunId = 0;
-let discordLogQueue = [];
-let discordLogWorkerRunning = false;
 let vintedSessionRefreshPromise = null;
 
 // ── RATE LIMITER (token bucket) ─────────────────────────────
@@ -234,30 +219,6 @@ function normalizeApiEndpoint(value, fallback) {
   }
 }
 
-function createInstallId() {
-  if (typeof crypto?.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `rb-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function createBrowserId(installId = '') {
-  const clean = String(installId || '')
-    .replace(/[^a-z0-9]/gi, '')
-    .toUpperCase();
-  const suffix =
-    (clean && clean.length >= 6 ? clean.slice(-6) : clean) ||
-    Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `NAV-${suffix}`;
-}
-
-function createDeviceHwid() {
-  const raw = typeof crypto?.randomUUID === 'function'
-    ? crypto.randomUUID().replace(/[^a-z0-9]/gi, '').toUpperCase()
-    : `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 18)}`.toUpperCase();
-  const normalized = raw.padEnd(24, '0').slice(0, 24);
-  return `HW-${normalized.slice(0, 8)}-${normalized.slice(8, 16)}-${normalized.slice(16, 24)}`;
-}
 
 function parsePriceValue(priceText) {
   if (!priceText) return null;
@@ -361,19 +322,6 @@ function estimatePublishedAtIso(uploadedText, referenceIso = null) {
   return new Date(ts).toISOString();
 }
 
-function normalizeDiscordWebhookUrl(value) {
-  const url = String(value || '').trim();
-  if (!url) return '';
-  const webhookRe = /^https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/api\/webhooks\/\S+$/i;
-  return webhookRe.test(url) ? url : '';
-}
-
-function normalizeClientIp(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  return raw.replace(/[^a-fA-F0-9:.]/g, '').slice(0, 90);
-}
-
 function formatDurationFromMs(msInput) {
   const ms = Math.max(0, Number(msInput) || 0);
   const totalSeconds = Math.floor(ms / 1000);
@@ -385,152 +333,6 @@ function formatDurationFromMs(msInput) {
   return `${seconds}s`;
 }
 
-function normalizeVintedAddressForLog(session) {
-  const raw =
-    String(session?.shippingAddressText || '').trim() ||
-    [session?.shippingAddressLine1, session?.shippingAddressLine2]
-      .map((part) => String(part || '').trim())
-      .filter(Boolean)
-      .join(' ');
-  if (!raw) return '-';
-  const compact = raw.replace(/\s+/g, ' ').trim();
-  const lowered = compact.toLowerCase();
-  if (
-    lowered.includes('tratamos los datos') ||
-    lowered.includes('consentimiento') ||
-    lowered.includes('cookies') ||
-    lowered.includes('politica')
-  ) {
-    return 'no_detectada';
-  }
-  return compact;
-}
-
-function getCampaignLabelFromSummary(entry) {
-  const name = String(entry?.name || '').trim();
-  if (name) return name;
-  const product = String(entry?.productName || '').trim();
-  return product || '';
-}
-
-async function buildDiscordOperationalContext(configInput = null) {
-  const normalizedConfig =
-    configInput && typeof configInput === 'object'
-      ? normalizeConfigSnapshot(configInput)
-      : await getConfig();
-  const session = normalizeVintedSession(normalizedConfig.vintedSession);
-
-  let analyses = [];
-  let activeAnalysis = null;
-  try {
-    const listing = await listAnalyses();
-    analyses = Array.isArray(listing?.analyses) ? listing.analyses : [];
-    activeAnalysis = analyses.find((entry) => entry?.isActive) || null;
-  } catch (_) {
-    analyses = [];
-    activeAnalysis = null;
-  }
-
-  const campaignNames = analyses
-    .map((entry) => getCampaignLabelFromSummary(entry))
-    .filter(Boolean);
-  const fallbackCampaign = String(normalizedConfig.productName || '').trim();
-  const activeCampaign = getCampaignLabelFromSummary(activeAnalysis) || fallbackCampaign || 'sin_campana';
-  const activeAgeMs = Number(activeAnalysis?.metrics?.analysisAgeMs || 0);
-  const activeCampaignAge = Number.isFinite(activeAgeMs) && activeAgeMs > 0
-    ? formatDurationFromMs(activeAgeMs)
-    : '-';
-  const linksActive = Array.isArray(normalizedConfig.searchUrls) ? normalizedConfig.searchUrls.length : 0;
-
-  return {
-    clientIp: normalizeClientIp(normalizedConfig.clientIp || '') || 'desconocida',
-    hwid: String(normalizedConfig.deviceHwid || '').trim() || '-',
-    vintedLoggedIn: session.loggedIn === true ? 'si' : session.loggedIn === false ? 'no' : 'unknown',
-    vintedStatus: String(session.status || 'unknown').trim() || 'unknown',
-    vintedUser:
-      String(session.username || session.displayName || session.fullName || '').trim() || '-',
-    vintedAddress: normalizeVintedAddressForLog(session),
-    campaignsCount: campaignNames.length,
-    campaignsList: campaignNames.length ? campaignNames.join(', ') : activeCampaign,
-    activeCampaign,
-    activeCampaignAge,
-    linksActive,
-  };
-}
-
-function buildDiscordOperationalDetails(context) {
-  return {
-    ip_publica: context?.clientIp || 'desconocida',
-    hwid: context?.hwid || '-',
-    vinted_logueada: context?.vintedLoggedIn || 'unknown',
-    vinted_estado: context?.vintedStatus || 'unknown',
-    vinted_usuario: context?.vintedUser || '-',
-    vinted_direccion: context?.vintedAddress || '-',
-    campanas_total: Number(context?.campaignsCount || 0),
-    campanas: context?.campaignsList || '-',
-    campana_activa: context?.activeCampaign || 'sin_campana',
-    tiempo_campana: context?.activeCampaignAge || '-',
-    links_activos: Number(context?.linksActive || 0),
-  };
-}
-
-function buildDiscordOperationalFields(context) {
-  const entries = [
-    { name: 'IP', value: context?.clientIp || 'desconocida', inline: true },
-    { name: 'HWID', value: context?.hwid || '-', inline: true },
-    { name: 'Vinted logueada', value: context?.vintedLoggedIn || 'unknown', inline: true },
-    { name: 'Vinted usuario', value: context?.vintedUser || '-', inline: true },
-    { name: 'Vinted direccion', value: context?.vintedAddress || '-', inline: false },
-    { name: 'Campanas total', value: String(Number(context?.campaignsCount || 0)), inline: true },
-    { name: 'Campanas', value: context?.campaignsList || '-', inline: false },
-    { name: 'Campana activa', value: context?.activeCampaign || 'sin_campana', inline: true },
-    { name: 'Tiempo campana', value: context?.activeCampaignAge || '-', inline: true },
-    { name: 'Links activos', value: String(Number(context?.linksActive || 0)), inline: true },
-  ];
-  return entries.map((entry) => ({
-    name: formatDiscordLogValue(entry.name),
-    value: formatDiscordLogValue(entry.value),
-    inline: entry.inline === true,
-  }));
-}
-
-function buildDiscordSourceTag(config) {
-  const browserId = String(config?.browserId || '').trim() || createBrowserId(config?.installId || '');
-  const installId = String(config?.installId || '').trim();
-  const installShort = installId ? installId.slice(-8) : 'unknown';
-  const campaign = String(config?.productName || '').trim() || 'sin-campana';
-  const ip = normalizeClientIp(config?.clientIp || '');
-  const hwid = String(config?.deviceHwid || '').trim();
-  const hwidShort = hwid ? `${hwid.slice(0, 7)}...${hwid.slice(-4)}` : '-';
-  const session = config?.vintedSession || null;
-  const accountTag =
-    session?.loggedIn === true
-      ? `@${String(session.username || session.displayName || 'cuenta').trim().slice(0, 28)}`
-      : 'sin-cuenta';
-  return `campana:${campaign} | nav:${browserId} | ip:${ip || '-'} | hwid:${hwidShort} | cuenta:${accountTag} | install:${installShort} | v${EXTENSION_VERSION}`;
-}
-
-function withDiscordSource(payload, config) {
-  if (!payload || typeof payload !== 'object') return payload;
-  const tag = buildDiscordSourceTag(config);
-  if (!Array.isArray(payload.embeds) || payload.embeds.length === 0) {
-    return payload;
-  }
-  return {
-    ...payload,
-    embeds: payload.embeds.map((embed) => {
-      const prev = String(embed?.footer?.text || '').trim();
-      const footerText = prev ? `${prev} | ${tag}` : tag;
-      return {
-        ...embed,
-        footer: {
-          ...(embed?.footer || {}),
-          text: footerText,
-        },
-      };
-    }),
-  };
-}
 
 function normalizeCyclePhase(value) {
   return value === PHASE_TRACK ? PHASE_TRACK : PHASE_DETECT;
@@ -543,375 +345,8 @@ function fmtMinutesLabel(minutes) {
   return `${(n / 60).toFixed(2)} h`;
 }
 
-async function postDiscordWebhook(webhookUrl, payload) {
-  const response = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    const detail = body ? `: ${body.slice(0, 180)}` : '';
-    throw new Error(`discord_http_${response.status}${detail}`);
-  }
-  return { ok: true, sentAt: nowIso() };
-}
 
-function formatDiscordLogValue(value) {
-  const raw = String(value == null ? '-' : value).trim();
-  if (!raw) return '-';
-  return raw.length > 240 ? `${raw.slice(0, 237)}...` : raw;
-}
 
-async function drainDiscordLogQueue() {
-  if (discordLogWorkerRunning) return;
-  discordLogWorkerRunning = true;
-  try {
-    while (discordLogQueue.length > 0) {
-      const job = discordLogQueue.shift();
-      if (!job?.webhookUrl || !job?.payload) continue;
-      try {
-        await postDiscordWebhook(job.webhookUrl, job.payload);
-      } catch (_) {
-        // no-op: nunca bloqueamos el motor por logs
-      }
-      await delay(DISCORD_LOG_COOLDOWN_MS);
-    }
-  } finally {
-    discordLogWorkerRunning = false;
-  }
-}
-
-function queueDiscordEventLog(config, title, details = {}, color = 3447003) {
-  if (!DISCORD_EVENT_LOGS) return;
-  const webhookUrl = normalizeDiscordWebhookUrl(config?.discordWebhookUrl || FIXED_DISCORD_WEBHOOK_URL);
-  if (!webhookUrl) return;
-
-  void (async () => {
-    const browserId = String(config?.browserId || '').trim() || createBrowserId(config?.installId || '');
-    const operational = await buildDiscordOperationalContext(config);
-    const detailsWithSource = {
-      nav_id: browserId,
-      ...(details || {}),
-      ...buildDiscordOperationalDetails(operational),
-    };
-
-    const fields = Object.entries(detailsWithSource)
-      .filter(([, value]) => value !== undefined && value !== null && value !== '')
-      .slice(0, 20)
-      .map(([name, value]) => ({
-        name: formatDiscordLogValue(name),
-        value: formatDiscordLogValue(value),
-        inline: true,
-      }));
-
-    const payload = withDiscordSource({
-      content: `📘 ${formatDiscordLogValue(title)}`,
-      embeds: [
-        {
-          title: formatDiscordLogValue(title),
-          color,
-          fields,
-          timestamp: nowIso(),
-        },
-      ],
-    }, config);
-
-    if (discordLogQueue.length >= DISCORD_LOG_QUEUE_MAX) {
-      discordLogQueue.shift();
-    }
-    discordLogQueue.push({ webhookUrl, payload });
-    void drainDiscordLogQueue();
-  })();
-}
-
-async function notifyDiscordSold(config, item) {
-  const webhookUrl = normalizeDiscordWebhookUrl(config?.discordWebhookUrl || FIXED_DISCORD_WEBHOOK_URL);
-  if (!webhookUrl) {
-    return { ok: false, skipped: true, reason: 'webhook_not_configured' };
-  }
-  const browserId = String(config?.browserId || '').trim() || createBrowserId(config?.installId || '');
-  const operational = await buildDiscordOperationalContext(config);
-  const operationalFields = buildDiscordOperationalFields(operational);
-  const title = String(item?.title || `Item ${item?.itemId || '?'}`).trim();
-  const itemUrl = String(item?.url || '').trim();
-  const priceText = item?.soldPriceText || item?.latest?.priceText || '-';
-  const model = item?.modelName || 'desconocido';
-  const timeToSell = fmtMinutesLabel(item?.timeToSellMinutes);
-  const campaign = String(config?.productName || 'Monitor').trim() || 'Monitor';
-  const soldAt = item?.soldAt || nowIso();
-
-  const payload = withDiscordSource({
-    content: `✅ Vendido detectado (${campaign})`,
-    embeds: [
-      {
-        title: 'Producto vendido',
-        description: itemUrl ? `[${title}](${itemUrl})` : title,
-        color: 5763719,
-        fields: [
-          { name: 'Navegador ID', value: browserId, inline: true },
-          { name: 'Modelo', value: model, inline: true },
-          { name: 'Precio venta', value: String(priceText), inline: true },
-          { name: 'Tiempo venta', value: timeToSell, inline: true },
-          { name: 'ID', value: String(item?.itemId || '-'), inline: true },
-          { name: 'Estado', value: String(item?.status || 'sold'), inline: true },
-          ...operationalFields,
-        ].slice(0, 24),
-        timestamp: soldAt,
-      },
-    ],
-  }, config);
-
-  return postDiscordWebhook(webhookUrl, payload);
-}
-
-async function notifyDiscordMonitorStarted(config) {
-  const webhookUrl = normalizeDiscordWebhookUrl(config?.discordWebhookUrl || FIXED_DISCORD_WEBHOOK_URL);
-  if (!webhookUrl) {
-    return { ok: false, skipped: true, reason: 'webhook_not_configured' };
-  }
-  const browserId = String(config?.browserId || '').trim() || createBrowserId(config?.installId || '');
-  const operational = await buildDiscordOperationalContext(config);
-  const operationalFields = buildDiscordOperationalFields(operational);
-
-  const campaign = String(config?.productName || 'Monitor').trim() || 'Monitor';
-  const searchUrls = Array.isArray(config?.searchUrls) ? config.searchUrls : [];
-  const detectPeriod = Math.max(5, Number(config?.detectPeriodMinutes) || 5);
-  const payload = withDiscordSource({
-    content: `🟢 Monitor iniciado (${campaign})`,
-    embeds: [
-      {
-        title: 'Sistema conectado',
-        color: 5763719,
-        fields: [
-          { name: 'Navegador ID', value: browserId, inline: true },
-          { name: 'Campana', value: campaign, inline: true },
-          { name: 'Links activos', value: String(searchUrls.length), inline: true },
-          { name: 'Intervalo deteccion', value: `${detectPeriod} min`, inline: true },
-          ...operationalFields,
-        ].slice(0, 24),
-        timestamp: nowIso(),
-      },
-    ],
-  }, config);
-
-  return postDiscordWebhook(webhookUrl, payload);
-}
-
-async function notifyDiscordMonitorStopped(config, reason = 'detenido') {
-  const webhookUrl = normalizeDiscordWebhookUrl(config?.discordWebhookUrl || FIXED_DISCORD_WEBHOOK_URL);
-  if (!webhookUrl) {
-    return { ok: false, skipped: true, reason: 'webhook_not_configured' };
-  }
-  const browserId = String(config?.browserId || '').trim() || createBrowserId(config?.installId || '');
-  const operational = await buildDiscordOperationalContext(config);
-  const operationalFields = buildDiscordOperationalFields(operational);
-  const campaign = String(config?.productName || 'Monitor').trim() || 'Monitor';
-  const payload = withDiscordSource({
-    content: `🛑 Monitor detenido (${campaign})`,
-    embeds: [
-      {
-        title: 'Monitor detenido',
-        color: 15158332,
-        fields: [
-          { name: 'Navegador ID', value: browserId, inline: true },
-          { name: 'Campana', value: campaign, inline: true },
-          { name: 'Motivo', value: String(reason || 'detenido'), inline: true },
-          ...operationalFields,
-        ].slice(0, 24),
-        timestamp: nowIso(),
-      },
-    ],
-  }, config);
-  return postDiscordWebhook(webhookUrl, payload);
-}
-
-async function notifyDiscordMonitorResumed(config, downMinutes = null) {
-  const webhookUrl = normalizeDiscordWebhookUrl(config?.discordWebhookUrl || FIXED_DISCORD_WEBHOOK_URL);
-  if (!webhookUrl) {
-    return { ok: false, skipped: true, reason: 'webhook_not_configured' };
-  }
-  const browserId = String(config?.browserId || '').trim() || createBrowserId(config?.installId || '');
-  const operational = await buildDiscordOperationalContext(config);
-  const operationalFields = buildDiscordOperationalFields(operational);
-  const campaign = String(config?.productName || 'Monitor').trim() || 'Monitor';
-  const downText =
-    Number.isFinite(Number(downMinutes)) && Number(downMinutes) > 0
-      ? `${Math.round(Number(downMinutes))} min`
-      : 'desconocido';
-  const payload = withDiscordSource({
-    content: `⚠️ Monitor reanudado tras interrupcion (${campaign})`,
-    embeds: [
-      {
-        title: 'Interrupcion detectada',
-        color: 16705372,
-        fields: [
-          { name: 'Navegador ID', value: browserId, inline: true },
-          { name: 'Campana', value: campaign, inline: true },
-          { name: 'Tiempo detenido aprox', value: downText, inline: true },
-          ...operationalFields,
-        ].slice(0, 24),
-        timestamp: nowIso(),
-      },
-    ],
-  }, config);
-  return postDiscordWebhook(webhookUrl, payload);
-}
-
-function formatEuroValue(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '-';
-  return `${n.toFixed(2)}€`;
-}
-
-function computeModelSalesStats(items) {
-  const list = Array.isArray(items) ? items : [];
-  const map = new Map();
-  for (const item of list) {
-    if (item?.status !== 'sold') continue;
-    const modelName = String(item?.modelName || '').trim() || inferModelName(item?.title || '');
-    const key = normalizePlainText(modelName) || 'desconocido';
-    const current = map.get(key) || {
-      key,
-      modelName: modelName || 'desconocido',
-      soldCount: 0,
-      sumPrice: 0,
-      pricedCount: 0,
-      sumMinutes: 0,
-      timedCount: 0,
-    };
-    current.soldCount += 1;
-    const soldPrice = Number(item?.soldPriceValue);
-    if (Number.isFinite(soldPrice)) {
-      current.sumPrice += soldPrice;
-      current.pricedCount += 1;
-    }
-    const timeToSellMinutes = Number(item?.timeToSellMinutes);
-    if (Number.isFinite(timeToSellMinutes) && timeToSellMinutes >= 0) {
-      current.sumMinutes += timeToSellMinutes;
-      current.timedCount += 1;
-    }
-    map.set(key, current);
-  }
-  return Array.from(map.values());
-}
-
-function normalizeModelExploitAlertsMap(raw) {
-  const source = raw && typeof raw === 'object' ? raw : {};
-  const out = {};
-  for (const [rawKey, rawEntry] of Object.entries(source)) {
-    const key = normalizePlainText(rawKey);
-    if (!key) continue;
-    const entry = rawEntry && typeof rawEntry === 'object' ? rawEntry : {};
-    const lastCount = Math.max(0, Number(entry.lastCount) || 0);
-    const lastMilestone = Math.max(0, Number(entry.lastMilestone) || 0);
-    const lastSentAt = String(entry.lastSentAt || '').trim() || null;
-    out[key] = {
-      lastCount,
-      lastMilestone,
-      lastSentAt,
-    };
-  }
-  return out;
-}
-
-function computeExploitableMilestone(soldCount) {
-  const count = Math.max(0, Math.floor(Number(soldCount) || 0));
-  if (count < MODEL_EXPLOITABLE_MIN_SOLD) return 0;
-  if (count < 20) return MODEL_EXPLOITABLE_MIN_SOLD;
-  return Math.floor(count / 10) * 10;
-}
-
-async function notifyDiscordExploitableModel(config, modelStats) {
-  const webhookUrl = normalizeDiscordWebhookUrl(config?.discordWebhookUrl || FIXED_DISCORD_WEBHOOK_URL);
-  if (!webhookUrl) {
-    return { ok: false, skipped: true, reason: 'webhook_not_configured' };
-  }
-  const operational = await buildDiscordOperationalContext(config);
-  const operationalFields = buildDiscordOperationalFields(operational);
-  const soldCount = Number(modelStats?.soldCount || 0);
-  const avgPrice =
-    Number(modelStats?.pricedCount || 0) > 0
-      ? Number(modelStats.sumPrice || 0) / Number(modelStats.pricedCount || 1)
-      : null;
-  const avgTimeMinutes =
-    Number(modelStats?.timedCount || 0) > 0
-      ? Number(modelStats.sumMinutes || 0) / Number(modelStats.timedCount || 1)
-      : null;
-  const payload = withDiscordSource({
-    content: '🚨 MODELO EXPLOTABLE DETECTADO',
-    embeds: [
-      {
-        title: 'MODELO EXPLOTABLE DETECTADO',
-        color: 15158332,
-        fields: [
-          { name: 'Modelo', value: String(modelStats?.modelName || 'desconocido'), inline: true },
-          { name: 'Ventas detectadas', value: String(soldCount), inline: true },
-          { name: 'Precio medio', value: avgPrice == null ? '-' : formatEuroValue(avgPrice), inline: true },
-          { name: 'Tiempo medio de venta', value: avgTimeMinutes == null ? '-' : fmtMinutesLabel(avgTimeMinutes), inline: true },
-          { name: 'Campana', value: String(config?.productName || '-').trim() || '-', inline: true },
-          { name: 'Tramo alertado', value: String(modelStats?.milestone || soldCount), inline: true },
-          ...operationalFields,
-        ].slice(0, 24),
-        timestamp: nowIso(),
-      },
-    ],
-  }, config);
-  return postDiscordWebhook(webhookUrl, payload);
-}
-
-async function processExploitableModelAlerts(state, config) {
-  const metrics = state?.metrics && typeof state.metrics === 'object' ? state.metrics : {};
-  const alertsMap = normalizeModelExploitAlertsMap(metrics.modelExploitAlerts);
-  const modelStatsList = computeModelSalesStats(state?.items || []);
-  let sent = 0;
-  let errors = 0;
-  let changed = false;
-  const nowMs = Date.now();
-
-  for (const modelStats of modelStatsList) {
-    const soldCount = Math.max(0, Number(modelStats?.soldCount) || 0);
-    if (soldCount < MODEL_EXPLOITABLE_MIN_SOLD) continue;
-    const key = normalizePlainText(modelStats?.key || modelStats?.modelName || 'desconocido') || 'desconocido';
-    const previous = alertsMap[key] || {
-      lastCount: 0,
-      lastMilestone: 0,
-      lastSentAt: null,
-    };
-    const milestone = computeExploitableMilestone(soldCount);
-    const previousSentMs = new Date(previous.lastSentAt || 0).getTime();
-    const cooldownElapsed =
-      !Number.isFinite(previousSentMs) || nowMs - previousSentMs >= MODEL_EXPLOITABLE_ALERT_COOLDOWN_MS;
-    const growth = soldCount - Number(previous.lastCount || 0);
-    const shouldSend =
-      milestone > Number(previous.lastMilestone || 0) ||
-      (cooldownElapsed && growth >= 5);
-    if (!shouldSend) continue;
-
-    try {
-      const notifyResult = await notifyDiscordExploitableModel(config, {
-        ...modelStats,
-        milestone,
-      });
-      if (notifyResult?.ok) {
-        alertsMap[key] = {
-          lastCount: soldCount,
-          lastMilestone: milestone,
-          lastSentAt: notifyResult.sentAt || nowIso(),
-        };
-        changed = true;
-        sent += 1;
-      }
-    } catch (_) {
-      errors += 1;
-    }
-  }
-
-  if (changed) {
-    metrics.modelExploitAlerts = alertsMap;
-  }
-  return { sent, errors, changed };
-}
 
 function inferModelName(value) {
   const text = String(value || '').toLowerCase();
@@ -958,127 +393,6 @@ function defaultState() {
   };
 }
 
-function defaultVintedSession() {
-  return {
-    status: 'unknown',
-    loggedIn: null,
-    username: null,
-    displayName: null,
-    fullName: null,
-    firstName: null,
-    lastName: null,
-    shippingAddressLine1: null,
-    shippingAddressLine2: null,
-    shippingAddressText: null,
-    profileUrl: null,
-    memberId: null,
-    language: null,
-    locale: null,
-    pageUrl: null,
-    reason: 'sin_comprobacion',
-    lastCheckedAt: null,
-  };
-}
-
-function normalizeVintedSession(raw) {
-  const base = defaultVintedSession();
-  const input = raw && typeof raw === 'object' ? raw : {};
-  const statusRaw = String(input.status || '').trim().toLowerCase();
-  const status = ['logged_in', 'no_account', 'unknown'].includes(statusRaw) ? statusRaw : 'unknown';
-  const loggedInRaw = input.loggedIn;
-  const loggedIn =
-    loggedInRaw === true ? true : loggedInRaw === false ? false : status === 'logged_in' ? true : status === 'no_account' ? false : null;
-  const profileUrl = (() => {
-    const value = String(input.profileUrl || '').trim();
-    if (!value) return null;
-    if (value.startsWith('https://www.vinted.es/')) return value;
-    if (value.startsWith('/')) return `https://www.vinted.es${value}`;
-    return null;
-  })();
-  const memberId = String(input.memberId || '').trim() || null;
-  return {
-    status,
-    loggedIn,
-    username: String(input.username || '').trim() || null,
-    displayName: String(input.displayName || '').trim() || null,
-    fullName: String(input.fullName || '').trim() || null,
-    firstName: String(input.firstName || '').trim() || null,
-    lastName: String(input.lastName || '').trim() || null,
-    shippingAddressLine1: String(input.shippingAddressLine1 || '').trim() || null,
-    shippingAddressLine2: String(input.shippingAddressLine2 || '').trim() || null,
-    shippingAddressText: String(input.shippingAddressText || '').trim() || null,
-    profileUrl,
-    memberId,
-    language: String(input.language || '').trim() || null,
-    locale: String(input.locale || '').trim() || null,
-    pageUrl: String(input.pageUrl || '').trim() || null,
-    reason: String(input.reason || '').trim() || base.reason,
-    lastCheckedAt: String(input.lastCheckedAt || '').trim() || null,
-  };
-}
-
-function shouldRefreshVintedSession(session) {
-  const lastMs = new Date(session?.lastCheckedAt || 0).getTime();
-  if (!Number.isFinite(lastMs)) return true;
-  return Date.now() - lastMs >= VINTED_SESSION_REFRESH_MINUTES * 60 * 1000;
-}
-
-function hasVintedSessionChanged(previousSession, nextSession) {
-  const prev = normalizeVintedSession(previousSession);
-  const next = normalizeVintedSession(nextSession);
-  const keys = [
-    'status',
-    'loggedIn',
-    'username',
-    'displayName',
-    'fullName',
-    'firstName',
-    'lastName',
-    'shippingAddressLine1',
-    'shippingAddressLine2',
-    'shippingAddressText',
-    'profileUrl',
-    'memberId',
-    'language',
-    'locale',
-    'pageUrl',
-    'reason',
-  ];
-  return keys.some((key) => {
-    const a = String(prev?.[key] ?? '');
-    const b = String(next?.[key] ?? '');
-    return a !== b;
-  });
-}
-
-function buildVintedSessionLogDetails(session, probeMeta = null, extracted = null, force = false) {
-  const s = normalizeVintedSession(session);
-  const accountLabel =
-    String(s.username || s.displayName || '').trim() ||
-    (s.loggedIn === true ? 'logueada_sin_alias' : 'sin_cuenta');
-  const addressLabel = normalizeVintedAddressForLog(s) || 'sin_direccion_detectada';
-  const details = {
-    force: force ? 'si' : 'no',
-    estado: s.status || 'unknown',
-    logueada: s.loggedIn === true ? 'si' : s.loggedIn === false ? 'no' : 'unknown',
-    usuario: accountLabel,
-    member_id: s.memberId || '-',
-    nombre: s.fullName || '-',
-    direccion: addressLabel,
-    motivo: s.reason || '-',
-  };
-  if (probeMeta && typeof probeMeta === 'object') {
-    details.intentos = Number.isFinite(probeMeta.attempts) ? probeMeta.attempts : '-';
-    details.espera_ms = Number.isFinite(probeMeta.waitedMs) ? probeMeta.waitedMs : '-';
-    details.lista = probeMeta.ready === true ? 'si' : 'no';
-  }
-  if (extracted && typeof extracted === 'object') {
-    details.load_state = String(extracted.loadState || '').trim() || '-';
-    details.loading_signals = extracted.loadingSignals === true ? 'si' : 'no';
-  }
-  return details;
-}
-
 function defaultRuntimeState() {
   return {
     monitorRunning: false,
@@ -1095,14 +409,8 @@ function defaultConfig() {
     productName: '',
     unitCost: null,
     searchUrls: [],
-    clientIp: '',
-    discordWebhookUrl: FIXED_DISCORD_WEBHOOK_URL,
-    browserId: '',
-    deviceHwid: '',
-    vintedSession: defaultVintedSession(),
     detectPeriodMinutes: DETECT_PERIOD_MIN,
     nextCyclePhase: PHASE_DETECT,
-    installId: '',
     scanPages: 2,       // páginas a escanear por URL (1-5)
     priceMin: null,     // filtrar items por debajo de este precio (€)
     priceMax: null,     // filtrar items por encima de este precio (€)
@@ -1234,7 +542,6 @@ function normalizeConfigSnapshot(rawConfig) {
   const monitorEnabled = loaded.monitorEnabled === true;
   const productName = typeof loaded.productName === 'string' ? loaded.productName.trim() : '';
   const unitCost = normalizeUnitCost(loaded.unitCost);
-  const clientIp = normalizeClientIp(loaded.clientIp || '');
   let searchUrls = normalizeSearchUrls(loaded.searchUrls);
   if (!searchUrls.length) {
     const legacyUrl =
@@ -1248,21 +555,7 @@ function normalizeConfigSnapshot(rawConfig) {
     Number.isFinite(Number(loaded.detectPeriodMinutes)) && Number(loaded.detectPeriodMinutes) >= 5
       ? Number(loaded.detectPeriodMinutes)
       : DETECT_PERIOD_MIN;
-  const discordWebhookUrl = FIXED_DISCORD_WEBHOOK_URL;
   const nextCyclePhase = normalizeCyclePhase(loaded.nextCyclePhase || base.nextCyclePhase);
-  const installId =
-    typeof loaded.installId === 'string' && loaded.installId.trim()
-      ? loaded.installId.trim()
-      : createInstallId();
-  const browserId =
-    typeof loaded.browserId === 'string' && loaded.browserId.trim()
-      ? loaded.browserId.trim()
-      : createBrowserId(installId);
-  const deviceHwid =
-    typeof loaded.deviceHwid === 'string' && loaded.deviceHwid.trim()
-      ? loaded.deviceHwid.trim().toUpperCase()
-      : createDeviceHwid();
-  const vintedSession = normalizeVintedSession(loaded.vintedSession);
 
   const scanPages = Number.isFinite(Number(loaded.scanPages))
     && Number(loaded.scanPages) >= 1 && Number(loaded.scanPages) <= 5
@@ -1278,14 +571,8 @@ function normalizeConfigSnapshot(rawConfig) {
     unitCost,
     searchUrls,
     searchUrl: searchUrls[0] || '',
-    clientIp,
-    discordWebhookUrl,
-    browserId,
-    deviceHwid,
-    vintedSession,
     detectPeriodMinutes,
     nextCyclePhase,
-    installId,
     scanPages,
     priceMin,
     priceMax,
@@ -1927,26 +1214,7 @@ async function setConfig(configPatch) {
         ? configPatch.productName.trim()
         : current.productName,
     unitCost: nextUnitCost,
-    clientIp: Object.prototype.hasOwnProperty.call(configPatch || {}, 'clientIp')
-      ? normalizeClientIp(configPatch?.clientIp || '')
-      : normalizeClientIp(current.clientIp || ''),
     searchUrls: nextSearchUrls,
-    discordWebhookUrl: FIXED_DISCORD_WEBHOOK_URL,
-    browserId:
-      typeof configPatch?.browserId === 'string' && configPatch.browserId.trim()
-        ? configPatch.browserId.trim()
-        : current.browserId || createBrowserId(current.installId || configPatch?.installId || ''),
-    deviceHwid:
-      typeof configPatch?.deviceHwid === 'string' && configPatch.deviceHwid.trim()
-        ? configPatch.deviceHwid.trim().toUpperCase()
-        : current.deviceHwid || createDeviceHwid(),
-    vintedSession: Object.prototype.hasOwnProperty.call(configPatch || {}, 'vintedSession')
-      ? normalizeVintedSession(configPatch?.vintedSession)
-      : normalizeVintedSession(current.vintedSession),
-    installId:
-      typeof configPatch?.installId === 'string' && configPatch.installId.trim()
-        ? configPatch.installId.trim()
-        : current.installId || createInstallId(),
   };
   const next = normalizeConfigSnapshot(nextRaw);
   if (next.monitorEnabled && (!Array.isArray(next.searchUrls) || next.searchUrls.length === 0)) {
@@ -2021,12 +1289,6 @@ async function markMonitorStoppedRuntime(reason = 'detenido') {
   });
 }
 
-function startupGapThresholdMs(config) {
-  const detectPeriod = Math.max(5, Number(config?.detectPeriodMinutes) || 5);
-  const gapMinutes = Math.max(STARTUP_GAP_ALERT_MINUTES, detectPeriod + 2);
-  return gapMinutes * 60 * 1000;
-}
-
 async function handleMonitorStartupRecovery(configInput = null) {
   const config = configInput || await getConfig();
   const runtime = await getRuntimeState();
@@ -2036,27 +1298,6 @@ async function handleMonitorStartupRecovery(configInput = null) {
       await markMonitorStoppedRuntime('monitor_disabled');
     }
     return;
-  }
-
-  const nowMs = Date.now();
-  const lastHeartbeatMs = new Date(runtime.lastHeartbeatAt || 0).getTime();
-  const hasLastHeartbeat = Number.isFinite(lastHeartbeatMs);
-  const downMs = hasLastHeartbeat ? nowMs - lastHeartbeatMs : null;
-  const shouldAlert =
-    runtime.monitorRunning === true &&
-    hasLastHeartbeat &&
-    downMs > startupGapThresholdMs(config);
-
-  if (shouldAlert) {
-    queueDiscordEventLog(
-      config,
-      'Monitor reanudado tras interrupcion',
-      {
-        trigger: 'startup',
-        down_min: Math.round(downMs / 60000),
-      },
-      16705372
-    );
   }
 
   await markMonitorHeartbeatRuntime();
@@ -2093,86 +1334,6 @@ async function mapWithConcurrency(items, concurrency, worker) {
   return results;
 }
 
-async function openHiddenTab(url) {
-  const tab = await chrome.tabs.create({ url, active: false });
-  return tab.id;
-}
-
-function waitForTabLoad(tabId, timeout = 25000) {
-  return new Promise((resolve) => {
-    let resolved = false;
-    let extendedTimeout = false;
-    let timer = null;
-
-    function isVintedSessionRefreshUrl(rawUrl) {
-      const url = String(rawUrl || '').toLowerCase();
-      if (!url) return false;
-      return url.includes('://www.vinted.es/session-refresh') || url.includes(VINTED_SESSION_REFRESH_PATH);
-    }
-
-    function restartTimer(ms) {
-      clearTimeout(timer);
-      timer = setTimeout(done, ms);
-    }
-
-    function maybeExtendTimeout() {
-      if (extendedTimeout) return;
-      extendedTimeout = true;
-      restartTimer(timeout + VINTED_SESSION_REFRESH_EXTRA_TIMEOUT_MS);
-    }
-
-    const done = () => {
-      if (resolved) return;
-      resolved = true;
-      chrome.tabs.onUpdated.removeListener(listener);
-      clearTimeout(timer);
-      resolve();
-    };
-
-    const listener = (id, changeInfo, tab) => {
-      if (id !== tabId) return;
-      const currentUrl = String(changeInfo?.url || tab?.url || tab?.pendingUrl || '');
-      if (isVintedSessionRefreshUrl(currentUrl)) {
-        maybeExtendTimeout();
-        return;
-      }
-      if (changeInfo.status === 'complete') {
-        done();
-      }
-    };
-
-    chrome.tabs.onUpdated.addListener(listener);
-    restartTimer(timeout);
-
-    chrome.tabs.get(tabId)
-      .then((tab) => {
-        const currentUrl = String(tab?.url || tab?.pendingUrl || '');
-        if (isVintedSessionRefreshUrl(currentUrl)) {
-          maybeExtendTimeout();
-          return;
-        }
-        if (tab.status === 'complete') done();
-      })
-      .catch(done);
-  });
-}
-
-async function closeTabQuiet(tabId) {
-  try {
-    await chrome.tabs.remove(tabId);
-  } catch (_) {
-    // no-op
-  }
-}
-
-async function runInTab(tabId, func, args = []) {
-  const result = await chrome.scripting.executeScript({
-    target: { tabId },
-    func,
-    args,
-  });
-  return result?.[0]?.result;
-}
 
 function normalizeItemFromCatalog(raw) {
   const itemId = String(raw.itemId || '').trim();
@@ -2477,69 +1638,18 @@ async function refreshVintedSessionInfo({ force = false } = {}) {
 
   vintedSessionRefreshPromise = (async () => {
     const config = await getConfig();
-    const currentSession = normalizeVintedSession(config.vintedSession);
-    if (!force && !shouldRefreshVintedSession(currentSession)) {
-      return { ok: true, skipped: true, config, session: currentSession };
-    }
-
-    let nextSession = currentSession;
+    let loggedIn = null;
     try {
       const res = await vintedFetch('https://www.vinted.es/api/v2/users/current_user');
       if (res.status === 401 || res.status === 403) {
-        nextSession = normalizeVintedSession({
-          ...currentSession,
-          loggedIn: false,
-          status: 'no_account',
-          reason: 'not_authenticated',
-          lastCheckedAt: nowIso(),
-        });
+        loggedIn = false;
       } else if (res.ok) {
-        const data = await res.json();
-        const user = data.user || data.member || null;
-        nextSession = normalizeVintedSession({
-          ...currentSession,
-          loggedIn: true,
-          status: 'logged_in',
-          username: user?.login || currentSession.username || null,
-          displayName: user?.real_name || user?.login || currentSession.displayName || null,
-          memberId: user?.id ? String(user.id) : currentSession.memberId || null,
-          reason: 'api_check',
-          lastCheckedAt: nowIso(),
-        });
-      } else {
-        throw new Error(`session_api_${res.status}`);
+        loggedIn = true;
       }
-    } catch (err) {
-      nextSession = normalizeVintedSession({
-        ...currentSession,
-        status: currentSession.status || 'unknown',
-        reason: `check_error: ${String(err?.message || 'unknown').slice(0, 120)}`,
-        lastCheckedAt: nowIso(),
-      });
+    } catch (_) {
+      // no-op: session check failed
     }
-    const probeMeta = null;
-    const extracted = null;
-
-    const nextConfig = await setConfig({ vintedSession: nextSession });
-    const changed = hasVintedSessionChanged(currentSession, nextSession);
-    const mustLog =
-      force ||
-      changed ||
-      String(nextSession?.reason || '')
-        .toLowerCase()
-        .includes('check_error') ||
-      String(nextSession?.reason || '')
-        .toLowerCase()
-        .includes('timeout');
-    if (mustLog) {
-      queueDiscordEventLog(
-        nextConfig,
-        changed ? 'Cuenta Vinted actualizada' : 'Cuenta Vinted verificada',
-        buildVintedSessionLogDetails(nextSession, probeMeta, extracted, force),
-        nextSession.loggedIn === true ? 5763719 : nextSession.loggedIn === false ? 15105570 : 16776960
-      );
-    }
-    return { ok: true, config: nextConfig, session: nextSession };
+    return { ok: true, config, loggedIn };
   })();
 
   try {
@@ -2547,54 +1657,6 @@ async function refreshVintedSessionInfo({ force = false } = {}) {
   } finally {
     vintedSessionRefreshPromise = null;
   }
-}
-
-async function probeVintedSessionUntilReady(tabId) {
-  const startedAt = Date.now();
-  let snapshot = null;
-  let attempts = 0;
-
-  await delay(VINTED_SESSION_BOOTSTRAP_WAIT_MS);
-
-  while (Date.now() - startedAt <= VINTED_SESSION_POLL_TIMEOUT_MS) {
-    attempts += 1;
-    let current = null;
-    try {
-      current = await runInTab(tabId, extractCurrentVintedAccountFromPage);
-    } catch (_) {
-      current = null;
-    }
-    if (current && typeof current === 'object') {
-      snapshot = current;
-      const hasUsefulIdentity = Boolean(
-        current.profileUrl || current.memberId || current.username || current.displayName || current.fullName
-      );
-      const hasUsefulAddress = Boolean(
-        current.shippingAddressText || current.shippingAddressLine1 || current.shippingAddressLine2
-      );
-      const isReady =
-        current.ready === true ||
-        current.loadState === 'ready' ||
-        current.status === 'no_account' ||
-        (current.status === 'logged_in' && (hasUsefulIdentity || hasUsefulAddress));
-      if (isReady) {
-        return {
-          ready: true,
-          snapshot: current,
-          attempts,
-          waitedMs: Date.now() - startedAt,
-        };
-      }
-    }
-    await delay(VINTED_SESSION_POLL_INTERVAL_MS);
-  }
-
-  return {
-    ready: false,
-    snapshot,
-    attempts,
-    waitedMs: Date.now() - startedAt,
-  };
 }
 
 async function runDetectCycle(trigger = 'scheduler') {
@@ -2605,7 +1667,6 @@ async function runDetectCycle(trigger = 'scheduler') {
 
   const state = await getState();
   let config = await getConfig();
-  void refreshVintedSessionInfo({ force: false }).catch(() => {});
   try {
     if (!config.monitorEnabled) {
       return { ok: true, disabled: true, message: 'monitor detenido' };
@@ -2635,17 +1696,6 @@ async function runDetectCycle(trigger = 'scheduler') {
       }
     }
 
-    queueDiscordEventLog(
-      config,
-      'Deteccion iniciada',
-      {
-        trigger,
-        links: searchUrls.length,
-        paginas_por_link: scanPages,
-        jobs_total: expandedJobs.length,
-      },
-      5865249
-    );
     let detectedTotal = 0;
     let newCountTotal = 0;
     let scannedOk = 0;
@@ -2723,33 +1773,7 @@ async function runDetectCycle(trigger = 'scheduler') {
         : null;
     await setState(state);
 
-    if (newCountTotal > 0) {
-      const plusLabel = `+${newCountTotal} producto${newCountTotal === 1 ? '' : 's'} detectado${newCountTotal === 1 ? '' : 's'}`;
-      queueDiscordEventLog(
-        config,
-        plusLabel,
-        {
-          trigger,
-          campana: config?.productName || 'monitor',
-          nuevos: newCountTotal,
-          detectados: detectedTotal,
-          links: searchUrls.length,
-        },
-        5763719
-      );
-    }
-
     if (scannedOk === 0 && urlErrors.length > 0) {
-      queueDiscordEventLog(
-        config,
-        'Deteccion completada con error total',
-        {
-          trigger,
-          links: searchUrls.length,
-          errores_links: urlErrors.length,
-        },
-        15158332
-      );
       return {
         ok: false,
         error: `No se pudo abrir ningun link (${urlErrors.length} errores)`,
@@ -2757,20 +1781,6 @@ async function runDetectCycle(trigger = 'scheduler') {
       };
     }
 
-    queueDiscordEventLog(
-      config,
-      'Deteccion completada',
-      {
-        trigger,
-        links: searchUrls.length,
-        detectados: detectedTotal,
-        nuevos: newCountTotal,
-        urls_ok: scannedOk,
-        urls_error: urlErrors.length,
-        filtrados: filteredOutTotal,
-      },
-      urlErrors.length > 0 ? 15158332 : 5763719
-    );
     return {
       ok: true,
       detected: detectedTotal,
@@ -2793,15 +1803,6 @@ async function runDetectCycle(trigger = 'scheduler') {
     };
     state.metrics.lastError = `detect: ${err.message}`;
     await setState(state);
-    queueDiscordEventLog(
-      config,
-      'Deteccion fallo',
-      {
-        trigger,
-        error: err?.message || 'unknown_error',
-      },
-      15158332
-    );
     return { ok: false, error: err.message };
   } finally {
     detectRunning = false;
@@ -2816,17 +1817,12 @@ async function runTrackCycle(trigger = 'scheduler') {
 
   const state = await getState();
   let config = await getConfig();
-  void refreshVintedSessionInfo({ force: false }).catch(() => {});
   const nowMs = Date.now();
   let attempted = 0;
   let checked = 0;
   let errors = 0;
   let expired = 0;
   let soldThisRun = 0;
-  let notified = 0;
-  let notifyErrors = 0;
-  let exploitableAlerts = 0;
-  let exploitableAlertErrors = 0;
   let sellerChecked = 0;
   let sellerErrors = 0;
 
@@ -2839,15 +1835,6 @@ async function runTrackCycle(trigger = 'scheduler') {
     } catch (_) {
       // no-op
     }
-    queueDiscordEventLog(
-      config,
-      'Analisis iniciado',
-      {
-        trigger,
-        items_total: Array.isArray(state.items) ? state.items.length : 0,
-      },
-      15844367
-    );
     const kept = [];
     let aborted = false;
 
@@ -2884,19 +1871,6 @@ async function runTrackCycle(trigger = 'scheduler') {
               item.sellerAccountStatus = 'unknown';
             }
             sellerErrors += 1;
-          }
-        }
-
-        if (item.discordNotifyPending === true) {
-          try {
-            const notifyResult = await notifyDiscordSold(config, item);
-            if (notifyResult?.ok) {
-              item.discordNotifyPending = false;
-              item.discordSoldNotifiedAt = notifyResult.sentAt || nowIso();
-              notified += 1;
-            }
-          } catch (_) {
-            notifyErrors += 1;
           }
         }
         kept.push(item);
@@ -2960,17 +1934,6 @@ async function runTrackCycle(trigger = 'scheduler') {
       }
       if (prevStatus !== 'sold' && item.status === 'sold') {
         soldThisRun += 1;
-        item.discordNotifyPending = true;
-        try {
-          const notifyResult = await notifyDiscordSold(config, item);
-          if (notifyResult?.ok) {
-            item.discordNotifyPending = false;
-            item.discordSoldNotifiedAt = notifyResult.sentAt || nowIso();
-            notified += 1;
-          }
-        } catch (_) {
-          notifyErrors += 1;
-        }
       }
 
       kept.push(item);
@@ -2981,17 +1944,6 @@ async function runTrackCycle(trigger = 'scheduler') {
     }
 
     if (aborted || isRunCancelled(localRunId)) {
-      queueDiscordEventLog(
-        config,
-        'Analisis abortado',
-        {
-          trigger,
-          revisados: checked,
-          intentados: attempted,
-          errores: errors,
-        },
-        15158332
-      );
       return {
         ok: true,
         aborted: true,
@@ -3000,10 +1952,6 @@ async function runTrackCycle(trigger = 'scheduler') {
         errors,
         expired,
         soldThisRun,
-        notified,
-        notifyErrors,
-        exploitableAlerts,
-        exploitableAlertErrors,
         sellerChecked,
         sellerErrors,
       };
@@ -3013,45 +1961,22 @@ async function runTrackCycle(trigger = 'scheduler') {
       (a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime()
     );
     state.metrics.lastTrackRun = nowIso();
-    const exploitableResult = await processExploitableModelAlerts(state, config);
-    exploitableAlerts = Number(exploitableResult?.sent || 0);
-    exploitableAlertErrors = Number(exploitableResult?.errors || 0);
+    const exploitableResult = { sent: 0, errors: 0, changed: false };
     state.metrics.lastTrackSummary = {
       attempted,
       checked,
       errors,
       expired,
       soldThisRun,
-      notified,
-      notifyErrors,
-      exploitableAlerts,
-      exploitableAlertErrors,
       sellerChecked,
       sellerErrors,
     };
     state.metrics.lastError =
-      errors > 0 || notifyErrors > 0 || exploitableAlertErrors > 0 || sellerErrors > 0
-        ? `track_partial: ${errors} item(s) con error${notifyErrors > 0 ? ` | discord: ${notifyErrors}` : ''}${exploitableAlertErrors > 0 ? ` | alertas_modelo: ${exploitableAlertErrors}` : ''}${sellerErrors > 0 ? ` | seller: ${sellerErrors}` : ''}`
+      errors > 0 || sellerErrors > 0
+        ? `track_partial: ${errors} item(s) con error${sellerErrors > 0 ? ` | seller: ${sellerErrors}` : ''}`
         : null;
 
     await setState(state);
-    queueDiscordEventLog(
-      config,
-      'Analisis completado',
-      {
-        trigger,
-        intentados: attempted,
-        revisados: checked,
-        errores: errors,
-        expirados: expired,
-        vendidos: soldThisRun,
-        avisos_discord: notified,
-        alertas_modelo: exploitableAlerts,
-        seller_check: sellerChecked,
-        seller_errors: sellerErrors,
-      },
-      errors > 0 || notifyErrors > 0 || exploitableAlertErrors > 0 || sellerErrors > 0 ? 15158332 : 5763719
-    );
     return {
       ok: true,
       attempted,
@@ -3059,10 +1984,6 @@ async function runTrackCycle(trigger = 'scheduler') {
       errors,
       expired,
       soldThisRun,
-      notified,
-      notifyErrors,
-      exploitableAlerts,
-      exploitableAlertErrors,
       sellerChecked,
       sellerErrors,
     };
@@ -3074,24 +1995,11 @@ async function runTrackCycle(trigger = 'scheduler') {
       errors,
       expired,
       soldThisRun,
-      notified,
-      notifyErrors,
-      exploitableAlerts,
-      exploitableAlertErrors,
       sellerChecked,
       sellerErrors,
     };
     state.metrics.lastError = `track: ${err.message}`;
     await setState(state);
-    queueDiscordEventLog(
-      config,
-      'Analisis fallo',
-      {
-        trigger,
-        error: err?.message || 'unknown_error',
-      },
-      15158332
-    );
     return { ok: false, error: err.message };
   } finally {
     trackRunning = false;
@@ -3179,16 +2087,6 @@ async function startMonitoringSession(params = {}) {
   state.metrics.lastMonitorStartAt = now;
   await setState(state);
   await markMonitorStartedRuntime();
-  queueDiscordEventLog(
-    next,
-    'Monitor iniciado',
-    {
-      trigger: 'manual',
-      campana: nextProductName,
-      links: urls.length,
-    },
-    5763719
-  );
   await ensureAlarms();
   const startNotification = {
     sent: false,
@@ -3232,25 +2130,10 @@ async function startMonitoringSession(params = {}) {
 
 async function stopMonitoringSession() {
   monitorRunId += 1;
-  const current = await getConfig();
   const next = await setConfig({ monitorEnabled: false });
   await clearAlarms();
   await markMonitorStoppedRuntime('manual_stop');
-  queueDiscordEventLog(
-    current,
-    'Monitor detenido',
-    {
-      trigger: 'manual',
-      motivo: 'manual_stop',
-    },
-    15158332
-  );
-  const stopNotification = {
-    sent: false,
-    skipped: true,
-    reason: 'event_log_only',
-  };
-  return { ok: true, config: next, stopNotification };
+  return { ok: true, config: next };
 }
 
 async function openDashboardTab() {
@@ -3283,7 +2166,6 @@ chrome.runtime.onInstalled.addListener(async () => {
   const config = await getConfig();
   await handleMonitorStartupRecovery(config);
   await ensureAlarms();
-  void refreshVintedSessionInfo({ force: true }).catch(() => {});
   void openDashboardOnExtensionStart();
 });
 
@@ -3291,7 +2173,6 @@ chrome.runtime.onStartup.addListener(async () => {
   const config = await getConfig();
   await handleMonitorStartupRecovery(config);
   await ensureAlarms();
-  void refreshVintedSessionInfo({ force: true }).catch(() => {});
   void openDashboardOnExtensionStart();
 });
 
@@ -3382,7 +2263,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
     try {
       if (message?.action === 'rb:get-state') {
-        void refreshVintedSessionInfo({ force: false }).catch(() => {});
         const config = await getConfig();
         const analysesInfo = await listAnalyses();
         const scheduler = await getSchedulerStatus(config);
@@ -3483,11 +2363,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           success: true,
           result,
         });
-        return;
-      }
-      if (message?.action === 'rb:refresh-vinted-session') {
-        const result = await refreshVintedSessionInfo({ force: true });
-        sendResponse({ success: true, result, config: result?.config || (await getConfig()) });
         return;
       }
       if (message?.action === 'rb:run-detect') {
@@ -3926,239 +2801,5 @@ function extractSellerProfileStatusFromPage() {
     reason,
     displayName,
     checkedAt: new Date().toISOString(),
-  };
-}
-
-function extractCurrentVintedAccountFromPage() {
-  function normalizeOneLine(value) {
-    return String(value || '').replace(/\s+/g, ' ').trim();
-  }
-
-  function splitCleanLines(text) {
-    return String(text || '')
-      .split('\n')
-      .map((line) => normalizeOneLine(line))
-      .filter(Boolean);
-  }
-
-  function parsePersonName(fullName) {
-    const clean = normalizeOneLine(fullName);
-    if (!clean) {
-      return { fullName: null, firstName: null, lastName: null };
-    }
-    const parts = clean.split(' ').filter(Boolean);
-    if (parts.length <= 1) {
-      return { fullName: clean, firstName: clean, lastName: null };
-    }
-    return {
-      fullName: clean,
-      firstName: parts[0],
-      lastName: parts.slice(1).join(' '),
-    };
-  }
-
-  function extractShippingAddressInfo() {
-    const all = Array.from(document.querySelectorAll('div, section, article'));
-    let best = null;
-
-    for (const node of all) {
-      const text = String(node?.innerText || '');
-      if (!text) continue;
-      const lines = splitCleanLines(text);
-      if (lines.length < 2 || lines.length > 7) continue;
-      const joined = lines.join(' ');
-      const hasPostal = /\b\d{4,5}\b/.test(joined);
-      const hasStreetLike = /(calle|kalea|avenida|av\.?|c\/|plaza|plz|rue|via|road|street|st\.?)/i.test(joined);
-      const hasAddressHint = /(tu direcci[oó]n|direccion|shipping|env[ií]os|recoger|entregar)/i.test(joined);
-      if (!hasPostal && !hasStreetLike && !hasAddressHint) continue;
-
-      let score = 0;
-      if (hasPostal) score += 4;
-      if (hasStreetLike) score += 3;
-      if (hasAddressHint) score += 3;
-      if (lines[0] && /^[A-Za-zÀ-ÿ' -]{3,}$/.test(lines[0])) score += 2;
-      if (lines.length >= 3) score += 1;
-      if (score < 5) continue;
-
-      if (!best || score > best.score) {
-        best = { score, lines };
-      }
-    }
-
-    if (!best?.lines?.length) {
-      return {
-        fullName: null,
-        firstName: null,
-        lastName: null,
-        shippingAddressLine1: null,
-        shippingAddressLine2: null,
-        shippingAddressText: null,
-      };
-    }
-
-    const lines = best.lines.slice(0, 4);
-    const firstLineLooksName = /^[A-Za-zÀ-ÿ' -]{3,}$/.test(lines[0] || '');
-    const nameLine = firstLineLooksName ? lines[0] : null;
-    const addressLines = firstLineLooksName ? lines.slice(1) : lines;
-    const addressLine1 = addressLines[0] || null;
-    const addressLine2 = addressLines[1] || null;
-    const addressText = addressLines.length ? addressLines.join(', ') : null;
-    const parsedName = parsePersonName(nameLine);
-
-    return {
-      ...parsedName,
-      shippingAddressLine1: addressLine1,
-      shippingAddressLine2: addressLine2,
-      shippingAddressText: addressText,
-    };
-  }
-
-  function absoluteVintedUrl(href) {
-    const value = String(href || '').trim();
-    if (!value) return null;
-    if (value.startsWith('https://www.vinted.es/')) return value;
-    if (value.startsWith('/')) return `https://www.vinted.es${value}`;
-    return null;
-  }
-
-  function parseMemberId(profileUrl) {
-    const m = String(profileUrl || '').match(/\/member\/(\d+)/i);
-    return m?.[1] ? m[1] : null;
-  }
-
-  function parseUsername(profileUrl) {
-    const m = String(profileUrl || '').match(/\/member\/\d+(?:-([^/?#]+))?/i);
-    if (!m?.[1]) return null;
-    try {
-      return decodeURIComponent(m[1]).trim() || null;
-    } catch (_) {
-      return String(m[1]).trim() || null;
-    }
-  }
-
-  function hasVisibleLoadingSignals() {
-    const selectors = [
-      '[aria-busy="true"]',
-      '[data-testid*="loader"]',
-      '[class*="loader"]',
-      '[class*="spinner"]',
-      '[class*="loading"]',
-    ];
-    for (const selector of selectors) {
-      const nodes = document.querySelectorAll(selector);
-      for (const node of nodes) {
-        if (!(node instanceof Element)) continue;
-        const style = window.getComputedStyle(node);
-        const rect = node.getBoundingClientRect();
-        const hidden =
-          style.display === 'none' ||
-          style.visibility === 'hidden' ||
-          Number.parseFloat(style.opacity || '1') === 0 ||
-          rect.width < 8 ||
-          rect.height < 8;
-        if (!hidden) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  const bodyText = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
-  const pageUrl = String(window.location?.href || '');
-  const pagePath = String(window.location?.pathname || '').toLowerCase();
-  const language = String(document.documentElement?.lang || '').trim() || null;
-  const locale =
-    String(document.querySelector('meta[property="og:locale"]')?.getAttribute('content') || '').trim() ||
-    null;
-
-  const hasLoginCta =
-    /(inicia sesi[oó]n|iniciar sesi[oó]n|log in|sign in|se connecter|accedi|entra)/i.test(bodyText) ||
-    !!document.querySelector('a[href*="login"], a[href*="sign-in"], button[data-testid*="login"]');
-  const hasRegisterCta =
-    /(reg[ií]strate|registrati|sign up|register|crear cuenta|se inscrire)/i.test(bodyText) ||
-    !!document.querySelector('a[href*="register"], a[href*="signup"], a[href*="sign-up"]');
-
-  const anchors = Array.from(document.querySelectorAll('a[href]'));
-  const candidates = anchors
-    .map((a) => {
-      const href = absoluteVintedUrl(a.getAttribute('href'));
-      if (!href || !/\/member\/\d+/i.test(href)) return null;
-      const text = String(a.textContent || '').replace(/\s+/g, ' ').trim();
-      if (/\/member\/general\//i.test(href)) return null;
-      let score = 0;
-      if (a.closest('header, nav, [class*="header"], [class*="nav"], [data-testid*="header"]')) score += 8;
-      if (text && text.length >= 2 && text.length <= 36) score += 4;
-      if (href.includes('-')) score += 2;
-      return { href, text: text || null, score };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.score - a.score);
-
-  const best = candidates[0] || null;
-  const profileUrl = best?.href || null;
-  const memberId = parseMemberId(profileUrl);
-  const username = parseUsername(profileUrl);
-  const displayName = best?.text || username || null;
-  const shipping = extractShippingAddressInfo();
-  const fullName = shipping.fullName || displayName || null;
-  const firstName = shipping.firstName || null;
-  const lastName = shipping.lastName || null;
-  const shippingAddressLine1 = shipping.shippingAddressLine1 || null;
-  const shippingAddressLine2 = shipping.shippingAddressLine2 || null;
-  const shippingAddressText = shipping.shippingAddressText || null;
-
-  let status = 'unknown';
-  let loggedIn = null;
-  let reason = 'sin_suficientes_datos';
-
-  if (profileUrl) {
-    status = 'logged_in';
-    loggedIn = true;
-    reason = 'perfil_member_detectado';
-  } else if (pagePath.includes('/login') || (hasLoginCta && hasRegisterCta)) {
-    status = 'no_account';
-    loggedIn = false;
-    reason = 'sin_sesion_activa';
-  } else if (pagePath.includes('/settings/shipping') || pagePath.includes('/settings/')) {
-    status = 'logged_in';
-    loggedIn = true;
-    reason = 'ajustes_envio_abiertos';
-  }
-
-  const hasIdentitySignals = Boolean(profileUrl || memberId || username || displayName || fullName);
-  const hasAddressSignals = Boolean(shippingAddressText || shippingAddressLine1 || shippingAddressLine2);
-  const isSettingsContext = pagePath.includes('/settings/shipping') || pagePath.includes('/settings/');
-  const loadingSignals = hasVisibleLoadingSignals();
-  const waitingForSettingsContent = isSettingsContext && status === 'logged_in' && !hasIdentitySignals && !hasAddressSignals;
-
-  let ready = true;
-  let loadState = 'ready';
-  if (status === 'unknown' || waitingForSettingsContent || (loadingSignals && !hasIdentitySignals && !hasAddressSignals)) {
-    ready = false;
-    loadState = 'loading';
-  }
-
-  return {
-    status,
-    loggedIn,
-    username,
-    displayName,
-    fullName,
-    firstName,
-    lastName,
-    shippingAddressLine1,
-    shippingAddressLine2,
-    shippingAddressText,
-    profileUrl,
-    memberId,
-    language,
-    locale,
-    pageUrl: pageUrl || null,
-    reason,
-    ready,
-    loadState,
-    loadingSignals,
-    lastCheckedAt: new Date().toISOString(),
   };
 }

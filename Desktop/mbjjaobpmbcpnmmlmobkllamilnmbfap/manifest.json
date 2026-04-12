@@ -13,14 +13,7 @@
   },
   "permissions": ["alarms", "tabs", "scripting", "storage"],
   "host_permissions": [
-    "https://api.blackstock.es/*",
-    "http://127.0.0.1:8788/*",
-    "http://localhost:8788/*",
-    "https://www.vinted.es/*",
-    "https://discord.com/*",
-    "https://ptb.discord.com/*",
-    "https://canary.discord.com/*",
-    "https://discordapp.com/*"
+    "https://www.vinted.es/*"
   ],
   "background": {
     "service_worker": "background.js",
