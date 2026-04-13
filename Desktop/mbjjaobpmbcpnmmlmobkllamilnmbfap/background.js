@@ -4,14 +4,15 @@ const CONFIG_KEY = 'raybanMonitorConfig';
 const STORAGE_KEY = 'raybanMonitorState';
 const ANALYSES_KEY = 'raybanMonitorAnalyses';
 const RUNTIME_KEY = 'raybanMonitorRuntime';
+const PROGRESS_KEY = 'raybanMonitorProgress';
 const DETECT_ALARM = 'rayban-detect';
 const TRACK_ALARM = 'rayban-track';
 const CYCLE_ALARM = 'rayban-cycle';
-const DETECT_PERIOD_MIN = 5;           // detectar nuevos listings cada 5 min
+const DETECT_PERIOD_MIN = 3;           // detectar nuevos listings cada 3 min
 const EXPIRY_HOURS = 24;
 const MAX_SNAPSHOTS = 400;
-const DETECT_PARALLEL_TABS = 3;        // 3 búsquedas de catálogo en paralelo
-const TRACK_PARALLEL_TABS = 4;         // 4 análisis de item en paralelo
+const DETECT_PARALLEL_TABS = 5;        // 5 búsquedas de catálogo en paralelo
+const TRACK_PARALLEL_TABS = 6;         // 6 análisis de item en paralelo
 const SELLER_CHECK_INTERVAL_HOURS = 12;
 const SELLER_CHECK_MAX_PER_TRACK = 5;  // hasta 5 seller checks por ciclo
 // ── Prioridades de re-análisis por item ────────────────────────────────────
@@ -26,12 +27,12 @@ const LIKES_THRESHOLD_P1 = 3;         // ≥3 likes → tratar como P1
 const ITEM_AGE_P1_MS   = 2  * 60 * 60 * 1000;  // <2h → P1
 const ITEM_AGE_P2_MS   = 8  * 60 * 60 * 1000;  // 2-8h → P2
 // ── Rate limit / anti-bloqueo ──────────────────────────────────────────────
-const RATE_LIMIT_RPM = 28;             // máx 28 req/min — usuario activo real
-const RATE_LIMIT_BURST = 6;            // ráfaga inicial de 6 tokens
-const API_JITTER_MIN_MS = 350;         // delay mínimo entre requests
-const API_JITTER_MAX_MS = 1400;        // delay máximo entre requests
+const RATE_LIMIT_RPM = 35;             // máx 35 req/min — usuario activo real
+const RATE_LIMIT_BURST = 8;            // ráfaga inicial de 8 tokens
+const API_JITTER_MIN_MS = 180;         // delay mínimo entre requests
+const API_JITTER_MAX_MS = 700;         // delay máximo entre requests
 const API_RETRY_429_MAX = 3;           // reintentos al recibir 429
-const API_RETRY_429_BASE_MS = 12000;   // espera base ante 429 (12s × backoff)
+const API_RETRY_429_BASE_MS = 8000;    // espera base ante 429 (8s × backoff)
 const EXTENSION_VERSION = chrome.runtime.getManifest().version || '0.0.0';
 const MODEL_KEYWORDS = [
   'wayfarer',
@@ -1307,6 +1308,14 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function setProgressState(update) {
+  try {
+    await chrome.storage.local.set({
+      [PROGRESS_KEY]: { ...update, ts: Date.now() }
+    });
+  } catch (_) {}
+}
+
 async function mapWithConcurrency(items, concurrency, worker) {
   if (!Array.isArray(items) || items.length === 0) return [];
 
@@ -1703,6 +1712,8 @@ async function runDetectCycle(trigger = 'scheduler') {
     const detectedBatches = [];
     const urlErrors = [];
 
+    await setProgressState({ phase: 'detect', status: 'running', progress: 0, found: 0, total: expandedJobs.length });
+
     const detectResults = await mapWithConcurrency(
       expandedJobs,
       DETECT_PARALLEL_TABS,
@@ -1724,6 +1735,7 @@ async function runDetectCycle(trigger = 'scheduler') {
         continue;
       }
       scannedOk += 1;
+      await setProgressState({ phase: 'detect', status: 'running', progress: Math.round((scannedOk / expandedJobs.length) * 100), found: detectedTotal + (detected?.length || 0), total: expandedJobs.length });
       const detected = Array.isArray(result?.value?.detected) ? result.value.detected : [];
       const filteredResult = filterDetectedBySearchUrl(job.sourceUrl, detected);
       filteredOutTotal += filteredResult.dropped;
@@ -1772,6 +1784,7 @@ async function runDetectCycle(trigger = 'scheduler') {
         ? `detect_partial: ${urlErrors.length} link(s) con error`
         : null;
     await setState(state);
+    await setProgressState({ phase: 'detect', status: 'done', progress: 100, found: newCountTotal, total: expandedJobs.length });
 
     if (scannedOk === 0 && urlErrors.length > 0) {
       return {
@@ -1803,6 +1816,7 @@ async function runDetectCycle(trigger = 'scheduler') {
     };
     state.metrics.lastError = `detect: ${err.message}`;
     await setState(state);
+    await setProgressState({ phase: 'detect', status: 'error', progress: 0, found: 0, total: 0 });
     return { ok: false, error: err.message };
   } finally {
     detectRunning = false;
@@ -1837,6 +1851,10 @@ async function runTrackCycle(trigger = 'scheduler') {
     }
     const kept = [];
     let aborted = false;
+
+    const trackTotal = state.items.filter(i => i.status !== 'sold').length;
+    let trackDone = 0;
+    await setProgressState({ phase: 'track', status: 'running', progress: 0, checked: 0, total: trackTotal });
 
     for (const item of state.items) {
       if (isRunCancelled(localRunId)) {
@@ -1929,6 +1947,10 @@ async function runTrackCycle(trigger = 'scheduler') {
           applyMetricsToItem(state, item, metrics);
         }
         checked += 1;
+        trackDone += 1;
+        if (trackDone % 3 === 0) {
+          await setProgressState({ phase: 'track', status: 'running', progress: Math.round((trackDone / Math.max(1, trackTotal)) * 100), checked: trackDone, total: trackTotal });
+        }
       } catch (err) {
         errors += 1;
       }
@@ -1977,6 +1999,7 @@ async function runTrackCycle(trigger = 'scheduler') {
         : null;
 
     await setState(state);
+    await setProgressState({ phase: 'track', status: 'done', progress: 100, checked, total: trackTotal });
     return {
       ok: true,
       attempted,
@@ -2000,6 +2023,7 @@ async function runTrackCycle(trigger = 'scheduler') {
     };
     state.metrics.lastError = `track: ${err.message}`;
     await setState(state);
+    await setProgressState({ phase: 'track', status: 'error', progress: 0, checked: 0, total: 0 });
     return { ok: false, error: err.message };
   } finally {
     trackRunning = false;
@@ -2433,6 +2457,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (Object.prototype.hasOwnProperty.call(message,'priceMax')) patch.priceMax = Number(message.priceMax)>0 ? Number(message.priceMax) : null;
         const next = await setConfig(patch);
         sendResponse({ success: true, config: next });
+        return;
+      }
+      if (message?.action === 'rb:get-progress') {
+        const raw = await chrome.storage.local.get(PROGRESS_KEY);
+        sendResponse({ success: true, progress: raw[PROGRESS_KEY] || null });
         return;
       }
       sendResponse({ success: false, error: 'unknown_action' });
