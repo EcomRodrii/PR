@@ -5528,8 +5528,14 @@ function extractCatalogItemsFromPage() {
         if (items.length > 0) {
           return items.map((item, idx) => {
             const id    = String(item.id || '');
-            const slug  = item.url || item.slug || String(item.title || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-            const url   = `https://www.vinted.es/items/${id}${slug ? `-${slug}` : ''}`;
+            // item.url de la API es la URL completa — usarla directamente si existe,
+            // si no, construirla desde el slug o el título.
+            const fullApiUrl = typeof item.url === 'string' && item.url.startsWith('http')
+              ? item.url
+              : null;
+            const slug  = item.slug ||
+                          String(item.title || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+            const url   = fullApiUrl || `https://www.vinted.es/items/${id}${slug ? `-${slug}` : ''}`;
             const title = item.title || slugToTitle(slug) || `Item ${id}`;
             const price = item.price_numeric
               ? `${item.price_numeric}€`
