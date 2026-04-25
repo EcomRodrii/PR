@@ -2743,20 +2743,19 @@ async function runDetectCycle(trigger = 'scheduler') {
           if (isRunCancelled(localRunId)) {
             throw new Error('aborted');
           }
-          // Espera extra para hidrataciónde Next.js RSC en tabs ocultos.
-          // Con 3 s Next.js a veces no ha insertado aún las cards en el DOM.
-          await delay(5000);
+          // Espera mínima para que la sesión de Vinted esté disponible en el tab
+          await delay(2500);
           if (!await isTabScriptable(tabId)) {
             console.warn('[Detect] Tab not scriptable after load:', searchUrl);
             return { searchUrl, detected: [] };
           }
-          let detected = (await runInTab(tabId, extractCatalogItemsFromPage).catch(() => null)) || [];
-          // Si el primer intento da 0 (tab oculto aún sin DOM), esperamos más y reintentamos
-          if (!Array.isArray(detected) || detected.length === 0) {
-            console.warn('[Detect] 0 items en primer intento, reintentando en 4s:', searchUrl);
-            await delay(4000);
-            detected = (await runInTab(tabId, extractCatalogItemsFromPage).catch(() => null)) || [];
-          }
+          // extractCatalogItemsFromPage usa la API REST de Vinted (no DOM),
+          // funciona en tabs ocultos sin depender de renderizado JS del cliente.
+          const detected = (await runInTab(tabId, extractCatalogItemsFromPage).catch((e) => {
+            console.warn('[Detect] executeScript error:', e?.message);
+            return null;
+          })) || [];
+          console.log(`[Detect] ${searchUrl} → ${Array.isArray(detected) ? detected.length : 'ERR'} items`);
           return { searchUrl, detected: Array.isArray(detected) ? detected : [] };
         } catch (err) {
           console.warn('[Detect] Tab error for', searchUrl, '—', err?.message || err);
@@ -5483,120 +5482,144 @@ function extractMarketplaceItemsFromPage() {
 
 
 function extractCatalogItemsFromPage() {
+  // ── Helpers ───────────────────────────────────────────────────────────────
   function slugToTitle(slug) {
-    return decodeURIComponent(slug)
-      .split('-')
-      .filter(Boolean)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(' ');
+    return decodeURIComponent(slug).split('-').filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
   }
-
   function pickPriceFromText(text) {
     const m = (text || '').match(/(\d+[\.,]?\d*)\s*€/);
     return m ? `${m[1].replace(',', '.')}€` : null;
   }
 
-  const out = [];
-  const seen = new Set();
+  // ── Estrategia principal: API REST de Vinted ──────────────────────────────
+  // Funciona en tabs ocultos (no depende de renderizado DOM/JS del cliente).
+  // Construimos los params de la API a partir de la URL actual de la página.
+  return (async () => {
+    try {
+      const pageUrl = new URL(window.location.href);
+      const api = new URLSearchParams();
 
-  // ── Extrae datos de una card individual ───────────────────────────────────
-  function extractFromCard(card, a, href, rankNum) {
-    const fullUrl = href.startsWith('http') ? href : `https://www.vinted.es${href}`;
-    const slugMatch = href.match(/\/items\/\d+-([^/?#]+)/);
-    // En tabs ocultos innerText puede estar vacío; usamos textContent como fallback
-    const cardText = card.innerText || card.textContent || '';
+      // Parámetros de búsqueda del catálogo → API
+      const searchText = pageUrl.searchParams.get('search_text');
+      if (searchText) api.set('search_text', searchText);
 
-    const titleFromDom =
-      card.querySelector('[data-testid*="description"], [data-testid*="title"], h2, h3')?.textContent?.trim() ||
-      a.getAttribute('aria-label') ||
-      a.textContent?.trim() ||
-      '';
-    const title = titleFromDom || (slugMatch ? slugToTitle(slugMatch[1]) : `Item ${href.match(/\/items\/(\d+)/)?.[1]}`);
+      for (const id of pageUrl.searchParams.getAll('brand_ids[]'))   api.append('brand_ids[]', id);
+      for (const id of pageUrl.searchParams.getAll('catalog_ids[]')) api.append('catalog_ids[]', id);
+      for (const id of pageUrl.searchParams.getAll('size_ids[]'))    api.append('size_ids[]', id);
+      for (const id of pageUrl.searchParams.getAll('color_ids[]'))   api.append('color_ids[]', id);
 
-    const priceText =
-      card.querySelector('[data-testid*="price"], [class*="price"]')?.textContent?.trim() ||
-      pickPriceFromText(cardText);
+      const priceFrom = pageUrl.searchParams.get('price_from');
+      const priceTo   = pageUrl.searchParams.get('price_to');
+      if (priceFrom) api.set('price_from', priceFrom);
+      if (priceTo)   api.set('price_to',   priceTo);
 
-    const catalogText = `${title || ''} ${String(cardText || '').slice(0, 700)} ${fullUrl}`;
+      api.set('per_page', '96');
+      api.set('order', pageUrl.searchParams.get('order') || 'newest_first');
 
-    // Likes — [data-testid$="--favourite"] innerText = count string ("" = 0, "5" = 5)
-    const favEl = card.querySelector('[data-testid$="--favourite"]');
-    const likesRaw = parseInt(((favEl?.innerText || favEl?.textContent) || '').trim(), 10);
-    const likesCount = Number.isFinite(likesRaw) && likesRaw > 0 ? likesRaw : null;
+      const resp = await fetch(`/api/v2/catalog/items?${api.toString()}`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      });
 
-    // Imagen de miniatura de la card (para mostrar en UI)
-    const imgEl = card.querySelector('img[src*="vinted"], img[data-testid*="image"], img');
-    const imageUrl = imgEl?.src || imgEl?.getAttribute('data-src') || null;
+      if (resp.ok) {
+        const data  = await resp.json();
+        const items = Array.isArray(data?.items) ? data.items : [];
+        if (items.length > 0) {
+          return items.map((item, idx) => {
+            const id    = String(item.id || '');
+            const slug  = item.url || item.slug || String(item.title || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+            const url   = `https://www.vinted.es/items/${id}${slug ? `-${slug}` : ''}`;
+            const title = item.title || slugToTitle(slug) || `Item ${id}`;
+            const price = item.price_numeric
+              ? `${item.price_numeric}€`
+              : (item.price ? `${item.price}€` : null);
+            const likes = Number.isFinite(item.favourite_count) && item.favourite_count > 0
+              ? item.favourite_count : null;
+            const photo = item.photo?.url || item.photos?.[0]?.url
+              || item.photo?.thumbnails?.find(t => t.type === 'thumb310x430')?.url
+              || null;
+            return {
+              itemId: id,
+              url,
+              title,
+              priceText: price,
+              rank: idx + 1,
+              catalogText: `${title} ${item.brand_title || ''} ${item.size_title || ''} ${url}`,
+              likesCount: likes,
+              imageUrl: photo,
+            };
+          });
+        }
+        // API OK but 0 items — probablemente sin sesión o URL sin search_text
+        // Continuamos con fallback DOM
+      }
+    } catch (_) { /* silencioso, pasamos a DOM */ }
 
-    return { fullUrl, title, priceText, catalogText, likesCount, imageUrl };
-  }
+    // ── Fallback DOM (tab activo o RSC ya hidratado) ───────────────────────
+    const out  = [];
+    const seen = new Set();
+    let rank   = 0;
 
-  // ── Intento 1: selectores confirmados en escaneo en vivo (Abril 2026) ────
-  // [class*="feed-grid__item"]                           → 194 cards reales
-  // [data-testid^="product-item-id-"]:not([*="--"])      → solo cards raíz
-  // NOTA: getBoundingClientRect() devuelve {0,0} en tabs ocultos (active:false)
-  //       → NO usamos filtro de dimensiones, ordenamos por posición en el DOM.
-  const gridCards = Array.from(
-    document.querySelectorAll(
+    // Selector confirmado en escaneo en vivo (Abril 2026)
+    const gridCards = Array.from(document.querySelectorAll(
       '[class*="feed-grid__item"], [data-testid^="product-item-id-"]:not([data-testid*="--"])'
-    )
-  );
+    ));
 
-  let rank = 0;
-  for (const card of gridCards) {
-    const a = card.querySelector('a[href*="/items/"]');
-    if (!a) continue;
-    const href = a.getAttribute('href') || '';
-    const idMatch = href.match(/\/items\/(\d+)/);
-    if (!idMatch) continue;
-    const itemId = idMatch[1];
-    if (seen.has(itemId)) continue;
-    seen.add(itemId);
-    rank += 1;
-
-    const { fullUrl, title, priceText, catalogText, likesCount, imageUrl } =
-      extractFromCard(card, a, href, rank);
-    out.push({ itemId, url: fullUrl, title, priceText, rank, catalogText, likesCount, imageUrl });
-  }
-
-  // ── Intento 2: fallback universal por anchors (para tabs ocultos o cambios de DOM) ──
-  // Si el selector de grid no encontró nada (tab oculto, cambio de DOM de Vinted),
-  // buscamos todos los enlaces a items y extraemos lo que podamos.
-  if (out.length === 0) {
-    const anchors = Array.from(document.querySelectorAll('a[href*="/items/"]'));
-    for (const a of anchors) {
+    for (const card of gridCards) {
+      const a    = card.querySelector('a[href*="/items/"]');
+      if (!a) continue;
       const href = a.getAttribute('href') || '';
-      const idMatch = href.match(/\/items\/(\d+)/);
-      if (!idMatch) continue;
-      const itemId = idMatch[1];
+      const idM  = href.match(/\/items\/(\d+)/);
+      if (!idM) continue;
+      const itemId = idM[1];
       if (seen.has(itemId)) continue;
-
-      const fullUrl = href.startsWith('http') ? href : `https://www.vinted.es${href}`;
-      const slugMatch = href.match(/\/items\/\d+-([^/?#]+)/);
-      const title = a.getAttribute('aria-label')?.trim() ||
-                    a.textContent?.trim() ||
-                    (slugMatch ? slugToTitle(slugMatch[1]) : `Item ${itemId}`);
-
-      // Skip navigation/footer links that just say generic text
-      if (!title || title.length < 3) continue;
-
-      // Try walking up to find a card container
-      const card = a.closest('[class*="feed-grid__item"], [class*="card"], [data-testid*="product"]') || a;
       seen.add(itemId);
-      rank += 1;
+      rank++;
 
-      const priceText = card !== a
-        ? (card.querySelector('[data-testid*="price"], [class*="price"]')?.textContent?.trim() || pickPriceFromText(card.textContent || ''))
-        : null;
-      const imgEl = card !== a ? card.querySelector('img') : null;
-      const imageUrl = imgEl?.src || imgEl?.getAttribute('data-src') || null;
-      const catalogText = `${title} ${fullUrl}`;
-
-      out.push({ itemId, url: fullUrl, title, priceText, rank, catalogText, likesCount: null, imageUrl });
+      const fullUrl  = href.startsWith('http') ? href : `https://www.vinted.es${href}`;
+      const slugM    = href.match(/\/items\/\d+-([^/?#]+)/);
+      const cardText = card.textContent || '';
+      const title    =
+        card.querySelector('[data-testid*="description"], [data-testid*="title"], h2, h3')?.textContent?.trim() ||
+        a.getAttribute('aria-label') || a.textContent?.trim() ||
+        (slugM ? slugToTitle(slugM[1]) : `Item ${itemId}`);
+      const priceText =
+        card.querySelector('[data-testid*="price"], [class*="price"]')?.textContent?.trim() ||
+        pickPriceFromText(cardText);
+      const favEl    = card.querySelector('[data-testid$="--favourite"]');
+      const likesRaw = parseInt(((favEl?.innerText || favEl?.textContent) || '').trim(), 10);
+      const imgEl    = card.querySelector('img');
+      out.push({
+        itemId, url: fullUrl, title, priceText, rank,
+        catalogText: `${title} ${cardText.slice(0, 400)} ${fullUrl}`,
+        likesCount:  Number.isFinite(likesRaw) && likesRaw > 0 ? likesRaw : null,
+        imageUrl:    imgEl?.src || imgEl?.getAttribute('data-src') || null,
+      });
     }
-  }
 
-  return out.slice(0, 250);
+    // Fallback final: cualquier enlace a /items/ en la página
+    if (out.length === 0) {
+      for (const a of document.querySelectorAll('a[href*="/items/"]')) {
+        const href = a.getAttribute('href') || '';
+        const idM  = href.match(/\/items\/(\d+)/);
+        if (!idM) continue;
+        const itemId = idM[1];
+        if (seen.has(itemId)) continue;
+        const slugM  = href.match(/\/items\/\d+-([^/?#]+)/);
+        const title  = a.getAttribute('aria-label')?.trim() || a.textContent?.trim() ||
+                       (slugM ? slugToTitle(slugM[1]) : `Item ${itemId}`);
+        if (!title || title.length < 3) continue;
+        seen.add(itemId);
+        rank++;
+        const fullUrl = href.startsWith('http') ? href : `https://www.vinted.es${href}`;
+        out.push({ itemId, url: fullUrl, title, priceText: null, rank,
+                   catalogText: `${title} ${fullUrl}`, likesCount: null, imageUrl: null });
+      }
+    }
+
+    return out.slice(0, 250);
+  })();
 }
 
 function extractItemMetricsFromPage() {
