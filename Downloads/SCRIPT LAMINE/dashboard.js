@@ -2578,13 +2578,28 @@ function renderTable(items) {
     const idTd = document.createElement('td');
     idTd.textContent = String(item.itemId);
 
+    // Thumbnail
+    const thumbTd = document.createElement('td');
+    thumbTd.className = 'thumb-cell';
+    if (item.imageUrl) {
+      const img = document.createElement('img');
+      img.src = item.imageUrl;
+      img.className = 'product-thumb';
+      img.alt = '';
+      img.loading = 'lazy';
+      img.addEventListener('click', (e) => {
+        e.stopPropagation(); // no toggle detail on img click
+        window.open(item.url, '_blank', 'noreferrer');
+      });
+      thumbTd.appendChild(img);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'thumb-placeholder';
+      thumbTd.appendChild(ph);
+    }
+
     const titleTd = document.createElement('td');
-    const likes = item.latest?.likesCount;
-    const tier  = item.opportunityTier ? `${item.opportunityTier} ` : '';
-    const hotBadge = item.isHot
-      ? `🔥 `
-      : (Number.isFinite(likes) && likes > 0 ? `❤️ ${likes} · ` : '');
-    titleTd.textContent = tier + hotBadge + (item.title || `Item ${item.itemId}`);
+    titleTd.textContent = item.title || `Item ${item.itemId}`;
     if (item.isHot || (item.opportunityScore || 0) >= 60) {
       tr.classList.add('row-hot');
     }
@@ -2610,6 +2625,7 @@ function renderTable(items) {
     const saleTd = document.createElement('td');
     saleTd.textContent = item.status === 'sold' ? fmtMinutesAsHours(item.timeToSellMinutes) : '-';
 
+    tr.appendChild(thumbTd);
     tr.appendChild(idTd);
     tr.appendChild(titleTd);
     tr.appendChild(statusTd);
@@ -2796,6 +2812,24 @@ function renderDetail() {
 
   els.detailLink.href = item.url;
   els.detailLink.textContent = `${item.title || `Item ${item.itemId}`} (ID ${item.itemId})`;
+
+  // Imagen del producto en el panel de detalle
+  let detailImg = document.getElementById('detail-product-img');
+  if (!detailImg) {
+    detailImg = document.createElement('img');
+    detailImg.id = 'detail-product-img';
+    detailImg.className = 'detail-product-img';
+    detailImg.alt = '';
+    detailImg.loading = 'lazy';
+    detailImg.addEventListener('click', () => window.open(item.url, '_blank', 'noreferrer'));
+    els.detailLink.parentNode.insertBefore(detailImg, els.detailLink.nextSibling);
+  }
+  if (item.imageUrl) {
+    detailImg.src = item.imageUrl;
+    detailImg.style.display = 'block';
+  } else {
+    detailImg.style.display = 'none';
+  }
 
   const latest = item.latest || {};
   const details = [

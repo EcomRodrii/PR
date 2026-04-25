@@ -3393,3 +3393,70 @@ tbody tr.selected {
 .btn-cuenta-vinted:active { transform: translateY(0) !important; }
 .btn-cuenta-vinted svg    { flex-shrink: 0; opacity: 0.9; }
 
+
+/* ── Thumbnails en tabla principal del dashboard ─────────────────────────── */
+th.th-thumb {
+  width: 58px;
+  min-width: 58px;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted, #5a7a6a);
+}
+
+td.thumb-cell {
+  width: 58px;
+  min-width: 58px;
+  padding: 6px 6px;
+  vertical-align: middle;
+  text-align: center;
+}
+
+img.product-thumb {
+  display: block;
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 7px;
+  border: 1px solid rgba(0, 180, 120, 0.20);
+  background: rgba(4, 12, 8, 0.5);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  margin: auto;
+}
+
+img.product-thumb:hover {
+  transform: scale(2.2);
+  border-color: rgba(0, 198, 136, 0.6);
+  z-index: 20;
+  position: relative;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.75);
+}
+
+.thumb-placeholder {
+  width: 44px;
+  height: 44px;
+  border-radius: 7px;
+  background: rgba(0, 180, 120, 0.05);
+  border: 1px dashed rgba(0, 150, 100, 0.18);
+  margin: auto;
+}
+
+/* ── Imagen grande en panel de detalle ───────────────────────────────────── */
+img.detail-product-img {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  max-height: 280px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 180, 120, 0.22);
+  margin: 10px 0 16px 0;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+img.detail-product-img:hover {
+  opacity: 0.88;
+  transform: scale(1.02);
+}

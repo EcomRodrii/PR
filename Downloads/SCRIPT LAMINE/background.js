@@ -2266,10 +2266,11 @@ function normalizeItemFromCatalog(raw) {
     sellerAccountStatus: 'unknown',
     sellerAccountReason: null,
     sellerLastCheckedAt: null,
+    imageUrl: raw.imageUrl || null,
     hotScore: Number.isFinite(raw.likesCount) ? raw.likesCount : 0,
     isHot: Number.isFinite(raw.likesCount) && raw.likesCount >= 8,
     opportunityScore: Number.isFinite(raw.likesCount) ? Math.min(Math.round((raw.likesCount / 20) * 40), 40) : 0,
-    opportunityTier: (Number.isFinite(raw.likesCount) && raw.likesCount >= 8) ? '🔥 CALIENTE' : '❄️ FRÍO',
+    opportunityTier: '',
     latest: {
       checkedAt: null,
       status: 'active',
@@ -2338,14 +2339,16 @@ function mergeDetectedItems(state, detectedItems) {
         Math.round((freshLikes / 20) * 40) + (existing.opportunityScore || 0) % 60,
         100
       );
-      if (existing.isHot) {
-        existing.opportunityTier = freshLikes >= 20 ? '🚀 TOP' : '💰 BUENA';
-      }
+      existing.opportunityTier = '';
     }
     // Actualizar precio si cambió
     if (normalized.latest?.priceText && !existing.latest?.priceText) {
       existing.latest.priceText = normalized.latest.priceText;
       existing.latest.priceValue = normalized.latest.priceValue;
+    }
+    // Actualizar imagen si el catálogo la detectó y no teníamos una
+    if (normalized.imageUrl && !existing.imageUrl) {
+      existing.imageUrl = normalized.imageUrl;
     }
   }
 
@@ -2378,6 +2381,11 @@ function applyMetricsToItem(state, item, metrics) {
   }
   const uploadedText = metrics.uploadedText ?? item.latest?.uploadedText ?? item.publishedAtText ?? null;
   const estimatedPublishedAt = estimatePublishedAtIso(uploadedText, checkedAt);
+
+  // Persistir imagen (og:image capturado en el track cycle)
+  if (metrics.imageUrl && !item.imageUrl) {
+    item.imageUrl = metrics.imageUrl;
+  }
 
   item.latest = {
     checkedAt,
@@ -2449,11 +2457,7 @@ function applyMetricsToItem(state, item, metrics) {
   const sellerPts  = item.sellerAccountStatus === 'active' ? 10 : 0;
   const offerPts   = metrics.canOffer === true ? 5 : 0;
   item.opportunityScore = Math.round(likesPts + recencyPts + velocityPts + sellerPts + offerPts);
-  item.opportunityTier  =
-    item.opportunityScore >= 80 ? '🚀 TOP'       :
-    item.opportunityScore >= 60 ? '💰 BUENA'     :
-    item.opportunityScore >= 40 ? '👀 INTERESANTE':
-    item.opportunityScore >= 20 ? '⚡ SEGUIR'     : '❄️ FRÍO';
+  item.opportunityTier = '';
 
   const oldTags = new Set(Array.isArray(item.keywordTags) ? item.keywordTags : []);
   item.modelName = inferModelName({
@@ -5958,6 +5962,10 @@ function extractItemMetricsFromPage() {
     sellerFromJsonLd?.sellerProfileUrl || sellerFromDom?.sellerProfileUrl || null;
   const sellerAccountStatus = inferSellerAccountStatus(rawText, sellerProfileUrl);
 
+  // Capturar imagen og:image del producto para mostrar en el panel de detalle
+  const ogImageEl = document.querySelector('meta[property="og:image"], meta[name="og:image"]');
+  const imageUrl  = ogImageEl?.content?.trim() || null;
+
   return {
     status,
     title,
@@ -5976,6 +5984,7 @@ function extractItemMetricsFromPage() {
     sellerAccountStatus,
     sellerLastCheckedAt: sellerProfileUrl ? new Date().toISOString() : null,
     sellerAccountReason: sellerAccountStatus === 'blocked' ? 'Detectado texto de bloqueo en ficha' : null,
+    imageUrl,
   };
 }
 
