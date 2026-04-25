@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw8O8KNw8tXKujN0SIWZWxAB3tzRBH5SM0kbHs81eKA683bbyFzGRfK0axHL8qYn+MpBph5Nao1frxD29+b+8O1ZiBf46xMKHkuUvWsTtZOGUfc95X6cP4JiAvgBBZcHkID/yn4vxKs97pHZTcosVG9T8w/yBoxRl3iqayI7LTBJqbrM7o+5G5hwzNM39Ut3cz6maCAXNpSoa0BLtpvh3hgGv45gcGP6t9Q1yduakdi9nQA94htd/JYtXP5MeVls0L9PP1mW+v9eo+ZxSULhoJ0XC1duE0ITgar1J5VgxLVYS8GO6WdkKzFjTBM4J5Fb/oHdo016Rti1VykbAzByXRQIDAQAB",
   "name": "Analisis Rentabilidad by LamineResell",
   "version": "1.0.2",
   "description": "Monitoriza oportunidades de reventa en Vinted y analiza rendimiento, ventas y competencia.",
