@@ -8,15 +8,15 @@ const RUNTIME_KEY = 'raybanMonitorRuntime';
 const DETECT_ALARM = 'rayban-detect';
 const TRACK_ALARM = 'rayban-track';
 const CYCLE_ALARM = 'rayban-cycle';
-const DETECT_PERIOD_MIN = 5;
+const DETECT_PERIOD_MIN = 15;          // cada 15 min (antes 5) → mucho menos agresivo
 const EXPIRY_HOURS = 24;
 const MAX_SNAPSHOTS = 400;
-const DETECT_PARALLEL_TABS = 4;
-const TRACK_PARALLEL_TABS = 5;
-const TRACK_MAX_ITEMS_PER_CYCLE = 50;
-const TRACK_ITEM_RECHECK_MINUTES = 10;
-const SELLER_CHECK_INTERVAL_HOURS = 6;
-const SELLER_CHECK_MAX_PER_TRACK = 8;
+const DETECT_PARALLEL_TABS = 1;        // 1 tab a la vez (antes 4) → sin ráfagas
+const TRACK_PARALLEL_TABS = 1;         // 1 tab a la vez (antes 5)
+const TRACK_MAX_ITEMS_PER_CYCLE = 10;  // máx 10 por ciclo (antes 50)
+const TRACK_ITEM_RECHECK_MINUTES = 30; // re-chequeo cada 30 min (antes 10)
+const SELLER_CHECK_INTERVAL_HOURS = 12;
+const SELLER_CHECK_MAX_PER_TRACK = 3;  // máx 3 sellers por ciclo (antes 8)
 const STARTUP_GAP_ALERT_MINUTES = 8;
 
 const VINTED_SESSION_CHECK_URL = 'https://www.vinted.es/settings/shipping';
@@ -2740,22 +2740,24 @@ async function runDetectCycle(trigger = 'scheduler') {
         try {
           tabId = await openHiddenTab(searchUrl);
           await waitForTabLoad(tabId, 30000);
-          if (isRunCancelled(localRunId)) {
-            throw new Error('aborted');
-          }
-          // Espera mínima para que la sesión de Vinted esté disponible en el tab
-          await delay(2500);
+          if (isRunCancelled(localRunId)) throw new Error('aborted');
+
+          // Pausa educada antes de la llamada API para no saturar Vinted
+          await delay(3000 + Math.floor(Math.random() * 2000));
+
           if (!await isTabScriptable(tabId)) {
-            console.warn('[Detect] Tab not scriptable after load:', searchUrl);
+            console.warn('[Detect] Tab not scriptable:', searchUrl);
             return { searchUrl, detected: [] };
           }
-          // extractCatalogItemsFromPage usa la API REST de Vinted (no DOM),
-          // funciona en tabs ocultos sin depender de renderizado JS del cliente.
           const detected = (await runInTab(tabId, extractCatalogItemsFromPage).catch((e) => {
             console.warn('[Detect] executeScript error:', e?.message);
             return null;
           })) || [];
           console.log(`[Detect] ${searchUrl} → ${Array.isArray(detected) ? detected.length : 'ERR'} items`);
+
+          // Pausa entre URLs para no encadenar peticiones sin respirar
+          await delay(4000 + Math.floor(Math.random() * 3000));
+
           return { searchUrl, detected: Array.isArray(detected) ? detected : [] };
         } catch (err) {
           console.warn('[Detect] Tab error for', searchUrl, '—', err?.message || err);
@@ -3417,11 +3419,10 @@ async function runMarketplaceScanCycle(analysisId) {
     const alreadyKnown = new Set(Object.keys(analysis.trackedItems));
     const toInvestigate = soldRefs
       .filter((r) => !alreadyKnown.has(r.itemId))
-      .slice(0, 12); // max 12 new items per cycle to avoid tab overload
+      .slice(0, 4); // máx 4 por ciclo (antes 12)
 
     // ── 4. Open each sold product page and extract real data ──────────────────
-    // Concurrency=3: 3 tabs open at once, sequential batches
-    const investigated = await mapWithConcurrency(toInvestigate, 3, async ({ itemId, url }) => {
+    const investigated = await mapWithConcurrency(toInvestigate, 1, async ({ itemId, url }) => {
       return inspectSoldItemPage(url);
     });
 
@@ -5514,7 +5515,7 @@ function extractCatalogItemsFromPage() {
       if (priceFrom) api.set('price_from', priceFrom);
       if (priceTo)   api.set('price_to',   priceTo);
 
-      api.set('per_page', '96');
+      api.set('per_page', '48');   // 48 items por página (antes 96)
       api.set('order', pageUrl.searchParams.get('order') || 'newest_first');
 
       const resp = await fetch(`/api/v2/catalog/items?${api.toString()}`, {
