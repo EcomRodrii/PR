@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cuenta Vinted | LamineResell</title>
+    <link rel="icon" type="image/png" href="icons/icon-pro-32.png" />
+    <link rel="stylesheet" href="cuenta-vinted.css" />
+  </head>
+  <body>
+    <main class="cv-layout">
+
+      <!-- ══════════════ SIDEBAR ══════════════ -->
+      <aside class="cv-sidebar">
+
+        <section class="panel sidebar-brand-panel">
+          <div class="sidebar-brand">
+            <img class="brand-logo" src="assets/logo.png" alt="Logo LamineResell" />
+            <div>
+              <p class="sidebar-eyebrow">Módulo de cuenta</p>
+              <h2>Cuenta Vinted</h2>
+              <p class="sidebar-subtitle">
+                Gestiona el modo vacaciones de tu cuenta Vinted y programa activaciones automáticas.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel sidebar-status-panel">
+          <div class="panel-head panel-head-compact">
+            <div>
+              <p class="panel-kicker">Estado actual</p>
+              <h3>Modo vacaciones</h3>
+            </div>
+          </div>
+          <div class="cv-status-block">
+            <span id="cv-status-dot" class="cv-dot cv-dot--unknown"></span>
+            <div>
+              <p id="cv-status-label" class="cv-status-label">Comprobando…</p>
+              <p id="cv-status-sub" class="cv-status-sub">—</p>
+            </div>
+          </div>
+          <button id="cv-refresh-btn" class="btn-ghost-sm" type="button">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            Actualizar estado
+          </button>
+        </section>
+
+        <section class="panel sidebar-schedule-status-panel">
+          <div class="panel-head panel-head-compact">
+            <div>
+              <p class="panel-kicker">Programación</p>
+              <h3>Auto-schedule</h3>
+            </div>
+          </div>
+          <div class="cv-schedule-badge" id="cv-schedule-badge">
+            <span class="cv-schedule-badge-dot" id="cv-schedule-badge-dot"></span>
+            <p id="cv-schedule-badge-label" class="cv-schedule-badge-label">Inactivo</p>
+          </div>
+          <p class="cv-schedule-badge-desc">Activa vacaciones de 23:00 a 07:00 cada día automáticamente.</p>
+        </section>
+
+      </aside>
+
+      <!-- ══════════════ MAIN ══════════════ -->
+      <section class="cv-main">
+
+        <!-- Vacation control card -->
+        <article class="panel cv-card">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Control manual</p>
+              <h3>Modo vacaciones</h3>
+            </div>
+            <div class="cv-state-pill" id="cv-state-pill">
+              <span class="cv-state-pill-dot"></span>
+              <span id="cv-state-pill-text">—</span>
+            </div>
+          </div>
+          <p class="cv-card-desc">
+            Activa o desactiva el modo vacaciones en tu cuenta Vinted. Cuando está activo, tus artículos
+            siguen visibles pero los compradores verán que estás de vacaciones.
+          </p>
+          <div class="cv-action-row">
+            <button id="cv-on-btn" class="btn-vac-on" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
+              </svg>
+              Activar vacaciones
+            </button>
+            <button id="cv-off-btn" class="btn-vac-off" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/>
+                <line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/>
+                <line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+              Desactivar vacaciones
+            </button>
+          </div>
+          <p id="cv-msg" class="cv-msg" aria-live="polite"></p>
+        </article>
+
+        <!-- Auto-schedule card -->
+        <article class="panel cv-card">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Automatización</p>
+              <h3>Programación automática</h3>
+            </div>
+            <label class="cv-toggle-wrap" title="Activar/desactivar programación automática">
+              <input id="cv-schedule-toggle" type="checkbox" class="cv-toggle-input" />
+              <span class="cv-toggle-track">
+                <span class="cv-toggle-thumb"></span>
+              </span>
+            </label>
+          </div>
+          <p class="cv-card-desc">
+            Cuando está activo, la extensión activa el modo vacaciones automáticamente a las
+            <strong>23:00</strong> y lo desactiva a las <strong>07:00</strong> cada día,
+            sin necesidad de intervención manual.
+          </p>
+          <div class="cv-schedule-info">
+            <div class="cv-schedule-info-row">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
+              </svg>
+              <span>Activación: <strong>23:00</strong></span>
+            </div>
+            <div class="cv-schedule-info-row">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/>
+                <line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/>
+                <line x1="21" y1="12" x2="23" y2="12"/>
+              </svg>
+              <span>Desactivación: <strong>07:00</strong></span>
+            </div>
+            <div class="cv-schedule-info-row">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span>Comprobación cada <strong>10 min</strong></span>
+            </div>
+          </div>
+          <p id="cv-schedule-msg" class="cv-msg" aria-live="polite"></p>
+        </article>
+
+        <!-- Info card -->
+        <article class="panel cv-card cv-card--info">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Información</p>
+              <h3>¿Cómo funciona?</h3>
+            </div>
+          </div>
+          <ul class="cv-info-list">
+            <li>La extensión accede a <strong>vinted.es/settings</strong> en segundo plano para leer y cambiar el estado.</li>
+            <li>Debes estar <strong>con sesión iniciada</strong> en Vinted en este navegador para que funcione.</li>
+            <li>El modo vacaciones <strong>no oculta</strong> tus artículos, solo notifica a los compradores que estás de vacaciones.</li>
+            <li>Si la sesión expira, la extensión no podrá actuar hasta que vuelvas a iniciar sesión.</li>
+          </ul>
+        </article>
+
+      </section>
+    </main>
+
+    <script src="cuenta-vinted.js"></script>
+  </body>
+</html>

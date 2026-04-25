@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Analisis Rentabilidad by LamineResell",
+  "version": "1.0.2",
+  "description": "Monitoriza oportunidades de reventa en Vinted y analiza rendimiento, ventas y competencia.",
+  "icons": {
+    "16": "icons/icon-pro-16.png",
+    "32": "icons/icon-pro-32.png",
+    "48": "icons/icon-pro-48.png",
+    "128": "icons/icon-pro-128.png"
+  },
+  "permissions": ["alarms", "tabs", "scripting", "storage", "notifications"],
+  "host_permissions": [
+    "https://www.vinted.es/*",
+    "http://localhost:3000/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Analisis Rentabilidad by LamineResell",
+    "default_icon": {
+      "16": "icons/icon-pro-16.png",
+      "32": "icons/icon-pro-32.png",
+      "48": "icons/icon-pro-48.png",
+      "128": "icons/icon-pro-128.png"
+    }
+  }
+}

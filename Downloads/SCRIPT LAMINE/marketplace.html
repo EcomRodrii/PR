@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Marketplace Analytics | LamineResell</title>
+    <link rel="icon" type="image/png" href="icons/icon-pro-32.png" />
+    <link rel="stylesheet" href="marketplace.css" />
+  </head>
+  <body>
+    <main class="mkt-layout">
+
+      <!-- ══════════════ SIDEBAR ══════════════ -->
+      <aside class="mkt-sidebar">
+
+        <section class="panel sidebar-brand-panel">
+          <div class="sidebar-brand">
+            <div>
+              <p class="sidebar-eyebrow">Módulo analítico</p>
+              <h2>Marketplace</h2>
+              <p class="sidebar-subtitle">
+                Rastrea cualquier modelo durante 12 horas y obtén datos reales: tallas, precios, velocidad de venta y top vendedores.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Search + launch -->
+        <section class="panel sidebar-search-panel">
+          <div class="panel-head panel-head-compact">
+            <div>
+              <p class="panel-kicker">Búsqueda</p>
+              <h3>Analizar modelo</h3>
+            </div>
+          </div>
+
+          <div class="search-stack">
+            <label class="field">
+              <span>Modelo o marca</span>
+              <input
+                id="mkt-query"
+                type="text"
+                placeholder="ej: Ray-Ban Wayfarer, Nike Air Max…"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+
+            <div class="btn-row">
+              <button id="mkt-start-btn" type="button" class="btn-primary-full">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Iniciar 12h
+              </button>
+              <button id="mkt-stop-btn" type="button" class="btn-danger-sm" style="display:none">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                Detener
+              </button>
+            </div>
+
+            <div id="mkt-status-chip" class="status-chip"></div>
+          </div>
+        </section>
+
+        <!-- Live analysis status -->
+        <section id="analysis-status-panel" class="panel sidebar-status-panel" style="display:none">
+          <div class="panel-head panel-head-compact">
+            <div>
+              <p class="panel-kicker">Estado del análisis</p>
+              <h3 id="analysis-query-label">—</h3>
+            </div>
+            <span id="analysis-badge" class="status-dot-badge"></span>
+          </div>
+
+          <div class="progress-block">
+            <div class="progress-bar-track">
+              <div id="analysis-progress-fill" class="progress-bar-fill" style="width:0%"></div>
+            </div>
+            <div class="progress-labels">
+              <span id="analysis-elapsed">0 min</span>
+              <span id="analysis-remaining">12h restantes</span>
+            </div>
+          </div>
+
+          <div class="status-grid">
+            <div class="status-item">
+              <span>Escaneos</span>
+              <strong id="scan-count">0</strong>
+            </div>
+            <div class="status-item">
+              <span>Detectados</span>
+              <strong id="stat-tracked">0</strong>
+            </div>
+            <div class="status-item">
+              <span>Vendidos</span>
+              <strong id="stat-sold">0</strong>
+            </div>
+            <div class="status-item">
+              <span>En venta</span>
+              <strong id="stat-active">0</strong>
+            </div>
+          </div>
+
+          <p id="last-scan-note" class="last-scan-note">Sin escaneos aún…</p>
+
+          <button id="mkt-scan-now-btn" type="button" class="btn-ghost-sm">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.02"/></svg>
+            Escanear ahora
+          </button>
+        </section>
+
+        <section class="panel sidebar-nav-panel">
+          <div class="nav-links">
+            <a class="ghost-link" href="dashboard.html">← Volver al dashboard</a>
+          </div>
+        </section>
+
+      </aside>
+
+      <!-- ══════════════ MAIN ══════════════ -->
+      <section class="mkt-main">
+
+        <header class="panel mkt-hero">
+          <div class="hero-copy">
+            <p class="hero-eyebrow">Análisis de mercado en tiempo real · 12h deep scan</p>
+            <h1 id="mkt-title">Marketplace Analytics</h1>
+            <p class="hero-lead">
+              Introduce un modelo y arranca el análisis. Cada 20 min el sistema escanea Vinted: detecta artículos vendidos en el catálogo oficial, abre cada producto individualmente para extraer el vendedor real, talla y precio exactos — sin suposiciones.
+            </p>
+          </div>
+          <div class="hero-icon">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="20" x2="18" y2="10"/>
+              <line x1="12" y1="20" x2="12"  y2="4"/>
+              <line x1="6"  y1="20" x2="6"  y2="14"/>
+            </svg>
+          </div>
+        </header>
+
+        <!-- ── EMPTY ── -->
+        <div id="mkt-empty" class="state-panel">
+          <div class="state-icon">📊</div>
+          <p class="state-title">Sin análisis activo</p>
+          <p class="state-sub">Escribe un modelo en el panel izquierdo y pulsa <strong>Iniciar 12h</strong> para comenzar el rastreo.</p>
+        </div>
+
+        <!-- ── LOADING FIRST SCAN ── -->
+        <div id="mkt-loading" class="state-panel" style="display:none">
+          <div class="spinner"></div>
+          <p class="state-title">Preparando primer escaneo…</p>
+          <p class="state-sub">El primer escaneo comenzará en aproximadamente 1 minuto. Los resultados aparecerán aquí automáticamente.</p>
+        </div>
+
+        <!-- ── RESULTS ── -->
+        <div id="mkt-results" style="display:none">
+
+          <!-- KPI row -->
+          <div class="kpi-row">
+            <article class="kpi-card">
+              <span class="kpi-label">Artículos detectados</span>
+              <strong id="kpi-tracked" class="kpi-value">—</strong>
+            </article>
+            <article class="kpi-card">
+              <span class="kpi-label">Vendidos confirmados</span>
+              <strong id="kpi-sold" class="kpi-value kpi-green">—</strong>
+            </article>
+            <article class="kpi-card">
+              <span class="kpi-label">En venta ahora</span>
+              <strong id="kpi-active" class="kpi-value">—</strong>
+            </article>
+            <article class="kpi-card">
+              <span class="kpi-label">Precio vendido · avg</span>
+              <strong id="kpi-avg-sold" class="kpi-value">—</strong>
+            </article>
+            <article class="kpi-card">
+              <span class="kpi-label">Precio activo · avg</span>
+              <strong id="kpi-avg-active" class="kpi-value">—</strong>
+            </article>
+            <article class="kpi-card">
+              <span class="kpi-label">Velocidad de venta</span>
+              <strong id="kpi-speed" class="kpi-value">—</strong>
+            </article>
+          </div>
+
+          <!-- ── Top 2 sections: Tallas + Velocidad ── -->
+          <div class="analytics-row-2">
+
+            <!-- Tallas más vendidas -->
+            <section class="panel analytics-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="panel-kicker">Por unidades vendidas</p>
+                  <h3>Tallas más vendidas</h3>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="panel-icon" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+              </div>
+              <div id="size-ranking" class="bar-chart-list"></div>
+              <p id="size-empty" class="empty-note" style="display:none">Datos insuficientes aún</p>
+            </section>
+
+            <!-- Velocidad de venta -->
+            <section class="panel analytics-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="panel-kicker">Tiempo desde detección hasta venta</p>
+                  <h3>Velocidad de salida</h3>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="panel-icon" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </div>
+              <div id="speed-buckets" class="bar-chart-list"></div>
+              <p id="speed-empty" class="empty-note" style="display:none">Solo disponible para artículos rastreados desde el inicio</p>
+            </section>
+
+          </div>
+
+          <!-- ── Precio vendido (distribución) ── -->
+          <section class="panel analytics-panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Distribución de precios · vendidos + activos</p>
+                <h3>A cuánto se vende</h3>
+              </div>
+              <div class="price-legend">
+                <span class="legend-dot legend-sold"></span><span>Vendido</span>
+                <span class="legend-dot legend-active"></span><span>Activo</span>
+              </div>
+            </div>
+            <div id="price-distribution" class="price-dist-chart"></div>
+            <p id="price-empty" class="empty-note" style="display:none">Sin datos de precios aún</p>
+          </section>
+
+          <!-- ── Top vendedores ── -->
+          <section class="panel analytics-panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Por ventas detectadas</p>
+                <h3>Top vendedores</h3>
+              </div>
+              <span id="sellers-count-badge" class="count-chip">0</span>
+            </div>
+            <div id="sellers-table" class="sellers-table"></div>
+            <p id="sellers-empty" class="empty-note" style="display:none">Sin vendedores identificados aún</p>
+          </section>
+
+          <!-- ── Bottom 2: Sold list + Active list ── -->
+          <div class="analytics-row-2">
+
+            <section class="panel analytics-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="panel-kicker">Histórico de ventas detectadas</p>
+                  <h3>Artículos vendidos</h3>
+                </div>
+                <span id="sold-count-badge" class="count-chip">0</span>
+              </div>
+              <div id="sold-list" class="item-list"></div>
+            </section>
+
+            <section class="panel analytics-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="panel-kicker">Oferta actual en Vinted</p>
+                  <h3>En venta ahora</h3>
+                </div>
+                <span id="active-count-badge" class="count-chip">0</span>
+              </div>
+              <div id="active-list" class="item-list"></div>
+            </section>
+
+          </div>
+
+          <p class="data-note">
+            ⓘ Solo aparece como <strong>vendido</strong> lo que Vinted confirma como vendido en su catálogo de ventas (<code>status=sold_out</code>). Por cada producto vendido detectado se abre su página individual para extraer vendedor, talla, precio y estado reales — ningún dato procede de suposiciones. Los resultados se actualizan cada ~20 min.
+          </p>
+
+        </div><!-- /mkt-results -->
+
+      </section><!-- /mkt-main -->
+    </main>
+    <script src="marketplace.js"></script>
+  </body>
+</html>
