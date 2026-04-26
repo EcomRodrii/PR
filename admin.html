@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Admin — LamineResell</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--surface:#111118;--surface2:#1a1a24;--surface3:#22222e;
+  --border:#2a2a38;--border2:#363648;
+  --accent:#7c6af7;--accent2:#5a4fd4;--accent-glow:rgba(124,106,247,.18);
+  --green:#22c55e;--red:#ef4444;--yellow:#f59e0b;--blue:#3b82f6;
+  --text:#e8e8f0;--text2:#9090a8;--text3:#5a5a70;
+  --radius:10px;--radius-sm:6px;
+  --font:'Inter',system-ui,sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;display:flex;overflow:hidden}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer;border:none;font-family:inherit}
+
+/* ── SIDEBAR ── */
+.sidebar{width:220px;min-width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:0;overflow:hidden}
+.sidebar-brand{padding:20px 18px 16px;border-bottom:1px solid var(--border)}
+.sidebar-brand h1{font-size:17px;font-weight:700;color:#fff;letter-spacing:-.3px}
+.sidebar-brand p{font-size:11px;color:var(--text3);margin-top:2px}
+.sidebar-nav{flex:1;padding:10px 8px;display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:13.5px;color:var(--text2);transition:all .15s;border:none;background:none;width:100%;text-align:left}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item.active{background:var(--accent-glow);color:#fff;font-weight:600}
+.nav-item .icon{font-size:15px;width:18px;text-align:center}
+.sidebar-footer{padding:14px 12px;border-top:1px solid var(--border)}
+.sidebar-footer p{font-size:11px;color:var(--text3);line-height:1.5}
+
+/* ── MAIN ── */
+.main{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+.topbar{padding:16px 28px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--surface);position:sticky;top:0;z-index:10}
+.topbar h2{font-size:16px;font-weight:700}
+.topbar-right{display:flex;align-items:center;gap:10px}
+.badge-server{font-size:11px;padding:4px 10px;border-radius:20px;background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.2)}
+.content{padding:24px 28px;flex:1}
+
+/* ── SECTIONS ── */
+.section{display:none}
+.section.active{display:block}
+
+/* ── STAT CARDS ── */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-bottom:24px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px}
+.stat-card .label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.stat-card .value{font-size:26px;font-weight:700;color:#fff}
+.stat-card .value.green{color:var(--green)}
+.stat-card .value.red{color:var(--red)}
+.stat-card .value.yellow{color:var(--yellow)}
+.stat-card .value.blue{color:var(--blue)}
+
+/* ── PANEL ── */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px}
+.panel-head{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.panel-head h3{font-size:14px;font-weight:600}
+.panel-head .count{font-size:12px;background:var(--surface2);padding:3px 10px;border-radius:20px;color:var(--text2)}
+
+/* ── TABLE ── */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead{background:var(--surface2)}
+th{padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text3);font-weight:600;white-space:nowrap}
+td{padding:11px 14px;border-top:1px solid var(--border);vertical-align:middle;white-space:nowrap}
+tr:hover td{background:rgba(255,255,255,.02)}
+.empty-row td{text-align:center;color:var(--text3);padding:28px}
+
+/* ── BADGES ── */
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600}
+.badge.green{background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.2)}
+.badge.red{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.2)}
+.badge.yellow{background:rgba(245,158,11,.12);color:var(--yellow);border:1px solid rgba(245,158,11,.2)}
+.badge.blue{background:rgba(59,130,246,.12);color:var(--blue);border:1px solid rgba(59,130,246,.2)}
+.badge.gray{background:var(--surface2);color:var(--text3);border:1px solid var(--border)}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;transition:all .15s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent2)}
+.btn-success{background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.25)}
+.btn-success:hover{background:rgba(34,197,94,.25)}
+.btn-danger{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.2)}
+.btn-danger:hover{background:rgba(239,68,68,.22)}
+.btn-ghost{background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
+.btn-ghost:hover{color:var(--text);border-color:var(--border2)}
+.btn-sm{padding:4px 10px;font-size:12px}
+.btn-icon{padding:5px 8px;font-size:13px}
+
+.actions-cell{display:flex;align-items:center;gap:6px}
+
+/* ── FORM ── */
+.form-grid{display:grid;gap:14px}
+.form-grid-2{grid-template-columns:1fr 1fr}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12px;color:var(--text2);font-weight:500}
+.field input,.field select{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:var(--radius-sm);font-size:13px;font-family:inherit;outline:none;transition:border .15s}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.field select option{background:var(--surface2)}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);cursor:pointer}
+.toggle-row input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent)}
+
+/* ── LOGIN ── */
+#login-screen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:36px 32px;width:360px}
+.login-card h2{font-size:20px;font-weight:700;margin-bottom:6px}
+.login-card p{font-size:13px;color:var(--text3);margin-bottom:24px}
+.login-card .field{margin-bottom:14px}
+.login-card .btn{width:100%;justify-content:center;padding:10px}
+.login-error{font-size:12px;color:var(--red);margin-top:10px;display:none}
+
+/* ── MODAL ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:50;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.modal-overlay.open{opacity:1;pointer-events:all}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto}
+.modal h3{font-size:16px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+.modal-close{background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;padding:2px 6px;border-radius:4px}
+.modal-close:hover{color:var(--text);background:var(--surface2)}
+.modal-actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+.modal-section{margin-bottom:18px}
+.modal-section h4{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:10px;font-weight:600}
+
+/* ── ALERT ── */
+.alert{padding:10px 14px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:14px;display:none}
+.alert.green{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.2);color:var(--green)}
+.alert.red{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:var(--red)}
+
+/* ── LOG TABLE ── */
+.log-result{padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.log-result.allowed{background:rgba(34,197,94,.1);color:var(--green)}
+.log-result.denied{background:rgba(239,68,68,.1);color:var(--red)}
+.log-result.other{background:var(--surface2);color:var(--text3)}
+
+/* ── MISC ── */
+.email-cell{max-width:200px;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.ts-cell{font-size:12px;color:var(--text3)}
+.loading{color:var(--text3);font-size:13px;padding:20px;text-align:center}
+.refresh-btn{background:none;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:4px 8px;border-radius:var(--radius-sm)}
+.refresh-btn:hover{color:var(--text);background:var(--surface2)}
+.sep{width:1px;height:16px;background:var(--border);display:inline-block;margin:0 4px}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-card">
+    <h2>Panel de Administración</h2>
+    <p>LamineResell · Acceso restringido</p>
+    <div class="field">
+      <label>URL del servidor</label>
+      <input id="login-url" type="url" placeholder="https://lamine-license-server-production.up.railway.app" value="https://lamine-license-server-production.up.railway.app"/>
+    </div>
+    <div class="field">
+      <label>Admin Secret</label>
+      <input id="login-secret" type="password" placeholder="Tu ADMIN_SECRET"/>
+    </div>
+    <button class="btn btn-primary" onclick="doLogin()">Entrar</button>
+    <div class="login-error" id="login-error">Secret incorrecto o servidor no disponible.</div>
+  </div>
+</div>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <h1>LamineResell</h1>
+    <p>Panel de administración</p>
+  </div>
+  <nav class="sidebar-nav">
+    <button class="nav-item active" data-section="dashboard" onclick="showSection('dashboard',this)">
+      <span class="icon">📊</span> Dashboard
+    </button>
+    <button class="nav-item" data-section="users" onclick="showSection('users',this)">
+      <span class="icon">👤</span> Usuarios
+    </button>
+    <button class="nav-item" data-section="create" onclick="showSection('create',this)">
+      <span class="icon">➕</span> Crear usuario
+    </button>
+    <button class="nav-item" data-section="logs" onclick="showSection('logs',this)">
+      <span class="icon">📋</span> Logs
+    </button>
+  </nav>
+  <div class="sidebar-footer">
+    <p id="footer-url" style="word-break:break-all;font-size:10px"></p>
+    <button class="btn btn-ghost btn-sm" style="margin-top:8px;width:100%" onclick="logout()">Cerrar sesión</button>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="topbar">
+    <h2 id="topbar-title">Dashboard</h2>
+    <div class="topbar-right">
+      <span class="badge-server" id="server-status">● Conectado</span>
+      <button class="refresh-btn" onclick="refreshCurrent()" title="Refrescar">↻</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ── DASHBOARD ── -->
+    <div id="section-dashboard" class="section active">
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card"><div class="label">Total usuarios</div><div class="value blue" id="stat-total">—</div></div>
+        <div class="stat-card"><div class="label">Licencias activas</div><div class="value green" id="stat-active">—</div></div>
+        <div class="stat-card"><div class="label">Sin activar</div><div class="value yellow" id="stat-inactive">—</div></div>
+        <div class="stat-card"><div class="label">Revocadas</div><div class="value red" id="stat-revoked">—</div></div>
+        <div class="stat-card"><div class="label">Dispositivos</div><div class="value" id="stat-devices">—</div></div>
+        <div class="stat-card"><div class="label">Sospechosos</div><div class="value red" id="stat-flagged">—</div></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Actividad reciente</h3>
+          <button class="refresh-btn" onclick="loadStats()">↻</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Acción</th><th>Usuario</th><th>IP</th><th>Resultado</th><th>Fecha</th></tr></thead>
+            <tbody id="recent-logs-body"><tr class="empty-row"><td colspan="5">Cargando...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── USUARIOS ── -->
+    <div id="section-users" class="section">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Todos los usuarios</h3>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="count" id="users-count">0</span>
+            <button class="refresh-btn" onclick="loadUsers()">↻</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Email</th><th>Rol</th><th>Licencia</th><th>Plan</th>
+                <th>Expira</th><th>Dispositivos</th><th>Último login</th><th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="users-body"><tr class="empty-row"><td colspan="8">Cargando...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CREAR USUARIO ── -->
+    <div id="section-create" class="section">
+      <div class="panel" style="max-width:520px">
+        <div class="panel-head"><h3>Crear nuevo usuario</h3></div>
+        <div style="padding:20px">
+          <div class="alert" id="create-alert"></div>
+          <div class="form-grid">
+            <div class="form-grid form-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+              <div class="field">
+                <label>Email</label>
+                <input id="c-email" type="email" placeholder="usuario@email.com"/>
+              </div>
+              <div class="field">
+                <label>Contraseña</label>
+                <input id="c-password" type="password" placeholder="Mínimo 8 caracteres"/>
+              </div>
+            </div>
+            <div class="form-grid form-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+              <div class="field">
+                <label>Plan</label>
+                <select id="c-plan">
+                  <option value="standard">Standard</option>
+                  <option value="pro">Pro</option>
+                  <option value="lifetime">Lifetime</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Expira (opcional)</label>
+                <input id="c-expires" type="date"/>
+              </div>
+            </div>
+            <label class="toggle-row">
+              <input id="c-activate" type="checkbox" checked/>
+              Activar licencia inmediatamente
+            </label>
+            <button class="btn btn-primary" style="justify-content:center" onclick="createUser()">Crear usuario</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── LOGS ── -->
+    <div id="section-logs" class="section">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Registro de actividad</h3>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="logs-limit" onchange="loadLogs()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:var(--radius-sm);font-size:12px">
+              <option value="100">Últimos 100</option>
+              <option value="250">Últimos 250</option>
+              <option value="500">Últimos 500</option>
+            </select>
+            <button class="refresh-btn" onclick="loadLogs()">↻</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Fecha</th><th>Usuario ID</th><th>Acción</th><th>IP</th><th>Resultado</th></tr></thead>
+            <tbody id="logs-body"><tr class="empty-row"><td colspan="5">Cargando...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- MODAL USUARIO -->
+<div class="modal-overlay" id="user-modal" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3 id="modal-title">Usuario <button class="modal-close" onclick="closeUserModal()">✕</button></h3>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────────
+let API = '';
+let SECRET = '';
+let currentSection = 'dashboard';
+
+// ── AUTH ───────────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const url    = document.getElementById('login-url').value.trim().replace(/\/+$/, '');
+  const secret = document.getElementById('login-secret').value.trim();
+  const err    = document.getElementById('login-error');
+  err.style.display = 'none';
+
+  try {
+    const res = await fetch(`${url}/admin/stats`, { headers: { 'x-admin-secret': secret } });
+    if (!res.ok) throw new Error('bad');
+    API    = url;
+    SECRET = secret;
+    sessionStorage.setItem('lr_api', API);
+    sessionStorage.setItem('lr_secret', SECRET);
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('footer-url').textContent = API;
+    loadAll();
+  } catch {
+    err.style.display = 'block';
+  }
+}
+
+function logout() {
+  sessionStorage.clear();
+  location.reload();
+}
+
+// ── NAV ───────────────────────────────────────────────────────────────────────
+const titles = { dashboard:'Dashboard', users:'Usuarios', create:'Crear usuario', logs:'Logs de actividad' };
+function showSection(id, el) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('section-' + id).classList.add('active');
+  el.classList.add('active');
+  currentSection = id;
+  document.getElementById('topbar-title').textContent = titles[id];
+  if (id === 'users')     loadUsers();
+  if (id === 'logs')      loadLogs();
+  if (id === 'dashboard') loadStats();
+}
+
+function refreshCurrent() {
+  if (currentSection === 'dashboard') loadStats();
+  if (currentSection === 'users')     loadUsers();
+  if (currentSection === 'logs')      loadLogs();
+}
+
+// ── API HELPER ────────────────────────────────────────────────────────────────
+async function api(path, method = 'GET', body = null) {
+  const opts = { method, headers: { 'x-admin-secret': SECRET, 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API + path, opts);
+  const data = await res.json();
+  return { ok: res.ok, status: res.status, data };
+}
+
+// ── LOAD ALL ──────────────────────────────────────────────────────────────────
+function loadAll() { loadStats(); }
+
+// ── STATS ─────────────────────────────────────────────────────────────────────
+async function loadStats() {
+  const { ok, data } = await api('/admin/stats');
+  if (!ok) return;
+  document.getElementById('stat-total').textContent    = data.total ?? 0;
+  document.getElementById('stat-active').textContent   = data.active ?? 0;
+  document.getElementById('stat-inactive').textContent = data.inactive ?? 0;
+  document.getElementById('stat-revoked').textContent  = data.revoked ?? 0;
+  document.getElementById('stat-devices').textContent  = data.devices ?? 0;
+  document.getElementById('stat-flagged').textContent  = data.flagged ?? 0;
+  renderRecentLogs(data.recentLogs || []);
+}
+
+function renderRecentLogs(logs) {
+  const tbody = document.getElementById('recent-logs-body');
+  if (!logs.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Sin actividad reciente</td></tr>'; return; }
+  tbody.innerHTML = logs.map(l => `
+    <tr>
+      <td>${l.action}</td>
+      <td>${l.user_id ?? '—'}</td>
+      <td class="ts-cell">${l.ip || '—'}</td>
+      <td>${logResultBadge(l.result)}</td>
+      <td class="ts-cell">${fmtDate(l.ts)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── USERS ─────────────────────────────────────────────────────────────────────
+let usersData = [];
+async function loadUsers() {
+  document.getElementById('users-body').innerHTML = '<tr class="empty-row"><td colspan="8">Cargando...</td></tr>';
+  const { ok, data } = await api('/admin/users');
+  if (!ok) { document.getElementById('users-body').innerHTML = '<tr class="empty-row"><td colspan="8">Error al cargar usuarios</td></tr>'; return; }
+  usersData = data.users || [];
+  document.getElementById('users-count').textContent = usersData.length;
+  renderUsers(usersData);
+}
+
+function renderUsers(users) {
+  const tbody = document.getElementById('users-body');
+  if (!users.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Sin usuarios registrados</td></tr>'; return; }
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td class="email-cell" title="${u.email}">${u.email}</td>
+      <td>${u.role === 'admin' ? '<span class="badge blue">Admin</span>' : '<span class="badge gray">User</span>'}</td>
+      <td>${licenseBadge(u.status, u.expires_at)}</td>
+      <td>${u.plan || '—'}</td>
+      <td class="ts-cell">${u.expires_at ? fmtDate(u.expires_at) : '∞'}</td>
+      <td style="text-align:center">
+        ${u.devices > 0 ? `<button class="btn btn-ghost btn-sm" onclick="openDevices(${u.id},'${escHtml(u.email)}')">${u.devices} 🖥</button>` : '0'}
+      </td>
+      <td class="ts-cell">${u.last_login_at ? fmtDate(u.last_login_at) : 'Nunca'}</td>
+      <td>
+        <div class="actions-cell">
+          ${u.status !== 'active' ? `<button class="btn btn-success btn-sm" onclick="activateUser('${escHtml(u.email)}')">Activar</button>` : ''}
+          ${u.status === 'active' ? `<button class="btn btn-danger btn-sm" onclick="revokeUser('${escHtml(u.email)}')">Revocar</button>` : ''}
+          <button class="btn btn-ghost btn-sm" onclick="openUserModal(${u.id},'${escHtml(u.email)}')">⋯</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ── USER ACTIONS ──────────────────────────────────────────────────────────────
+async function activateUser(email) {
+  const plan = prompt(`Plan para ${email}:`, 'standard');
+  if (!plan) return;
+  const expires = prompt('Fecha de expiración (YYYY-MM-DD) o vacío para ilimitado:') || null;
+  const expiresAt = expires ? new Date(expires).toISOString() : null;
+  const { ok, data } = await api('/admin/license/activate', 'POST', { email, plan, expiresAt });
+  alert(ok ? `✅ ${data.message}` : `❌ ${data.message || data.error}`);
+  loadUsers();
+}
+
+async function revokeUser(email) {
+  if (!confirm(`¿Revocar licencia de ${email}?`)) return;
+  const notes = prompt('Motivo (opcional):') || '';
+  const { ok, data } = await api('/admin/license/revoke', 'POST', { email, notes });
+  alert(ok ? `✅ ${data.message}` : `❌ ${data.message || data.error}`);
+  loadUsers();
+}
+
+async function deleteUser(email) {
+  if (!confirm(`⚠️ ¿Eliminar permanentemente a ${email}? Esta acción no se puede deshacer.`)) return;
+  const { ok, data } = await api(`/admin/users/${encodeURIComponent(email)}`, 'DELETE');
+  alert(ok ? `✅ ${data.message}` : `❌ ${data.message || data.error}`);
+  closeUserModal();
+  loadUsers();
+}
+
+async function setAdmin(email) {
+  if (!confirm(`¿Dar rol admin a ${email}?`)) return;
+  const { ok, data } = await api('/admin/users/set-admin', 'POST', { email });
+  alert(ok ? `✅ ${data.message}` : `❌ ${data.message || data.error}`);
+  loadUsers();
+}
+
+// ── USER MODAL ────────────────────────────────────────────────────────────────
+function openUserModal(id, email) {
+  const user = usersData.find(u => u.id === id);
+  if (!user) return;
+  document.getElementById('modal-title').innerHTML = `${email} <button class="modal-close" onclick="closeUserModal()">✕</button>`;
+  document.getElementById('modal-content').innerHTML = `
+    <div class="modal-section">
+      <h4>Información</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px">
+        <div style="color:var(--text3)">ID</div><div>${user.id}</div>
+        <div style="color:var(--text3)">Rol</div><div>${user.role}</div>
+        <div style="color:var(--text3)">Licencia</div><div>${licenseBadge(user.status, user.expires_at)}</div>
+        <div style="color:var(--text3)">Plan</div><div>${user.plan || '—'}</div>
+        <div style="color:var(--text3)">Registrado</div><div>${fmtDate(user.created_at)}</div>
+        <div style="color:var(--text3)">Último login</div><div>${user.last_login_at ? fmtDate(user.last_login_at) : 'Nunca'}</div>
+        <div style="color:var(--text3)">Expira</div><div>${user.expires_at ? fmtDate(user.expires_at) : '∞ Sin límite'}</div>
+        <div style="color:var(--text3)">Dispositivos</div><div>${user.devices}</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      ${user.status !== 'active' ? `<button class="btn btn-success btn-sm" onclick="activateUser('${escHtml(email)}');closeUserModal()">Activar licencia</button>` : ''}
+      ${user.status === 'active' ? `<button class="btn btn-danger btn-sm" onclick="revokeUser('${escHtml(email)}');closeUserModal()">Revocar licencia</button>` : ''}
+      ${user.role !== 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="setAdmin('${escHtml(email)}');closeUserModal()">Hacer admin</button>` : ''}
+      <button class="btn btn-ghost btn-sm" onclick="openDevices(${id},'${escHtml(email)}')">Ver dispositivos</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteUser('${escHtml(email)}')">🗑 Eliminar usuario</button>
+    </div>
+  `;
+  document.getElementById('user-modal').classList.add('open');
+}
+
+function closeUserModal() {
+  document.getElementById('user-modal').classList.remove('open');
+}
+
+function closeModal(e) {
+  if (e.target.classList.contains('modal-overlay')) closeUserModal();
+}
+
+// ── DEVICES MODAL ─────────────────────────────────────────────────────────────
+async function openDevices(userId, email) {
+  document.getElementById('modal-title').innerHTML = `Dispositivos — ${email} <button class="modal-close" onclick="closeUserModal()">✕</button>`;
+  document.getElementById('modal-content').innerHTML = '<div class="loading">Cargando dispositivos...</div>';
+  document.getElementById('user-modal').classList.add('open');
+
+  const { ok, data } = await api(`/admin/users/${userId}/devices`);
+  if (!ok) { document.getElementById('modal-content').innerHTML = '<p style="color:var(--red)">Error al cargar dispositivos.</p>'; return; }
+
+  const devs = data.devices || [];
+  document.getElementById('modal-content').innerHTML = devs.length === 0
+    ? '<p style="color:var(--text3);font-size:13px">Sin dispositivos registrados.</p>'
+    : `<div class="table-wrap"><table>
+        <thead><tr><th>Device ID</th><th>Última IP</th><th>Visto</th><th>Peticiones</th><th>Flag</th></tr></thead>
+        <tbody>${devs.map(d => `<tr>
+          <td style="font-size:11px;color:var(--text3);max-width:160px;overflow:hidden;text-overflow:ellipsis">${d.device_id}</td>
+          <td style="font-size:12px">${d.last_ip}</td>
+          <td class="ts-cell">${fmtDate(d.last_seen)}</td>
+          <td style="text-align:center">${d.request_count}</td>
+          <td>${d.is_flagged ? '<span class="badge red">⚠ Sospechoso</span>' : '<span class="badge green">OK</span>'}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      ${devs.some(d => d.is_flagged) ? `<div class="modal-actions"><button class="btn btn-ghost btn-sm" onclick="unflagUser(${userId})">Limpiar flags</button></div>` : ''}`;
+}
+
+async function unflagUser(userId) {
+  const { ok, data } = await api('/admin/devices/unflag', 'POST', { userId });
+  alert(ok ? '✅ ' + data.message : '❌ Error al limpiar flags');
+  closeUserModal();
+  loadUsers();
+}
+
+// ── CREATE USER ───────────────────────────────────────────────────────────────
+async function createUser() {
+  const email    = document.getElementById('c-email').value.trim();
+  const password = document.getElementById('c-password').value;
+  const plan     = document.getElementById('c-plan').value;
+  const expires  = document.getElementById('c-expires').value;
+  const activate = document.getElementById('c-activate').checked;
+  const alertEl  = document.getElementById('create-alert');
+
+  alertEl.style.display = 'none';
+  if (!email || !password) { showAlert('create-alert', 'red', 'Email y contraseña son obligatorios.'); return; }
+
+  const expiresAt = expires ? new Date(expires).toISOString() : null;
+  const { ok, data } = await api('/admin/users/create', 'POST', { email, password, plan, activate, expiresAt });
+
+  if (ok) {
+    showAlert('create-alert', 'green', `✅ ${data.message}`);
+    document.getElementById('c-email').value = '';
+    document.getElementById('c-password').value = '';
+    document.getElementById('c-expires').value = '';
+  } else {
+    showAlert('create-alert', 'red', `❌ ${data.message || data.error}`);
+  }
+}
+
+// ── LOGS ──────────────────────────────────────────────────────────────────────
+async function loadLogs() {
+  const limit = document.getElementById('logs-limit').value;
+  document.getElementById('logs-body').innerHTML = '<tr class="empty-row"><td colspan="5">Cargando...</td></tr>';
+  const { ok, data } = await api(`/admin/logs?limit=${limit}`);
+  if (!ok) { document.getElementById('logs-body').innerHTML = '<tr class="empty-row"><td colspan="5">Error al cargar logs</td></tr>'; return; }
+  const logs = data.logs || [];
+  if (!logs.length) { document.getElementById('logs-body').innerHTML = '<tr class="empty-row"><td colspan="5">Sin registros</td></tr>'; return; }
+  document.getElementById('logs-body').innerHTML = logs.map(l => `
+    <tr>
+      <td class="ts-cell">${fmtDate(l.ts)}</td>
+      <td>${l.user_id ?? '—'}</td>
+      <td>${l.action}</td>
+      <td class="ts-cell">${l.ip || '—'}</td>
+      <td>${logResultBadge(l.result)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function fmtDate(str) {
+  if (!str) return '—';
+  const d = new Date(str);
+  return d.toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'2-digit' })
+    + ' ' + d.toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit' });
+}
+
+function licenseBadge(status, expiresAt) {
+  if (status === 'active') {
+    if (expiresAt && new Date(expiresAt) < new Date()) return '<span class="badge yellow">Expirada</span>';
+    return '<span class="badge green">Activa</span>';
+  }
+  if (status === 'revoked')  return '<span class="badge red">Revocada</span>';
+  return '<span class="badge gray">Inactiva</span>';
+}
+
+function logResultBadge(result) {
+  if (!result) return '<span class="log-result other">—</span>';
+  if (result === 'allowed' || result.startsWith('allowed')) return `<span class="log-result allowed">${result}</span>`;
+  if (result.startsWith('denied')) return `<span class="log-result denied">${result}</span>`;
+  return `<span class="log-result other">${result}</span>`;
+}
+
+function showAlert(id, type, msg) {
+  const el = document.getElementById(id);
+  el.className = `alert ${type}`;
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function escHtml(str) {
+  return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+(function init() {
+  const saved = sessionStorage.getItem('lr_api');
+  const sec   = sessionStorage.getItem('lr_secret');
+  if (saved && sec) {
+    API = saved; SECRET = sec;
+    document.getElementById('login-url').value = API;
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('footer-url').textContent = API;
+    loadAll();
+  }
+})();
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeUserModal();
+  if (e.key === 'Enter' && document.getElementById('login-screen').style.display !== 'none') doLogin();
+});
+</script>
+</body>
+</html>

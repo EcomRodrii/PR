@@ -431,6 +431,65 @@ app.delete('/admin/users/:email', adminLimiter, requireAdmin, (req, res) => {
   return ok(res, { message: `Usuario ${email} eliminado.` });
 });
 
+// GET /admin/stats
+app.get('/admin/stats', adminLimiter, requireAdmin, (_req, res) => {
+  const total    = db.prepare('SELECT COUNT(*) as n FROM users').get().n;
+  const active   = db.prepare("SELECT COUNT(*) as n FROM licenses WHERE status='active'").get().n;
+  const inactive = db.prepare("SELECT COUNT(*) as n FROM licenses WHERE status='inactive'").get().n;
+  const revoked  = db.prepare("SELECT COUNT(*) as n FROM licenses WHERE status='revoked'").get().n;
+  const devices  = db.prepare('SELECT COUNT(*) as n FROM device_sessions').get().n;
+  const flagged  = db.prepare('SELECT COUNT(*) as n FROM device_sessions WHERE is_flagged=1').get().n;
+  const recentLogs = db.prepare('SELECT * FROM action_logs ORDER BY ts DESC LIMIT 10').all();
+  return ok(res, { total, active, inactive, revoked, devices, flagged, recentLogs });
+});
+
+// GET /admin/users/:id/devices
+app.get('/admin/users/:id/devices', adminLimiter, requireAdmin, (req, res) => {
+  const userId  = Number(req.params.id);
+  if (!userId) return fail(res, 'invalid_id');
+  const user    = db.prepare('SELECT id, email FROM users WHERE id = ?').get(userId);
+  if (!user) return fail(res, 'user_not_found', '', 404);
+  const devices = db.prepare('SELECT * FROM device_sessions WHERE user_id = ? ORDER BY last_seen DESC').all(userId);
+  return ok(res, { user, devices });
+});
+
+// POST /admin/devices/unflag
+app.post('/admin/devices/unflag', adminLimiter, requireAdmin, (req, res) => {
+  const userId = Number(req.body?.userId);
+  if (!userId) return fail(res, 'userId_required');
+  db.prepare('UPDATE device_sessions SET is_flagged=0, flag_reason=NULL WHERE user_id=?').run(userId);
+  return ok(res, { message: 'Flag eliminado.' });
+});
+
+// POST /admin/users/create
+app.post('/admin/users/create', adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    const email    = sanitize(req.body?.email, 254).toLowerCase();
+    const password = sanitize(req.body?.password, 128);
+    const activate = req.body?.activate === true;
+    const plan     = sanitize(req.body?.plan || 'standard', 64);
+    const expiresAt = req.body?.expiresAt ? sanitize(req.body.expiresAt, 32) : null;
+
+    if (!email || !isValidEmail(email))   return fail(res, 'email_invalid', 'El email no es válido.');
+    if (!password || password.length < 8) return fail(res, 'password_too_short', 'Mínimo 8 caracteres.');
+    if (db.prepare('SELECT id FROM users WHERE email = ?').get(email))
+      return fail(res, 'email_already_registered', 'Email ya registrado.', 409);
+
+    const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const userId = txn(() => {
+      const r = db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run(email, hash);
+      const status      = activate ? 'active' : 'inactive';
+      const activatedAt = activate ? nowIso() : null;
+      db.prepare('INSERT INTO licenses (user_id, status, plan, expires_at, activated_at) VALUES (?,?,?,?,?)')
+        .run(r.lastInsertRowid, status, plan, expiresAt, activatedAt);
+      return r.lastInsertRowid;
+    });
+
+    log('INFO', `admin_create_user: ${email}`);
+    return ok(res, { message: `Usuario ${email} creado.`, userId }, 201);
+  } catch (err) { log('ERROR', 'create_user', { err: err.message }); return fail(res, 'server_error', '', 500); }
+});
+
 // ── Errors ─────────────────────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
   log('ERROR', 'unhandled', { err: err.message });
