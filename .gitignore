@@ -1,0 +1,15 @@
+# Dependencias
+node_modules/
+
+# Secretos — NUNCA a git
+.env
+.env.*
+
+# Base de datos local
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+npm-debug.log*
