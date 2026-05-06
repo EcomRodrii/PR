@@ -13,3 +13,7 @@ node_modules/
 # Logs
 *.log
 npm-debug.log*
+
+# Bazooka worker — datos locales
+.chrome-worker-profile/
+vinted-cookies.json
