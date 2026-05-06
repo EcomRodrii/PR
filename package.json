@@ -1,12 +1,14 @@
 {
   "name": "lamine-license-server",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "API de licencias — LamineResell",
   "main": "server.js",
   "scripts": {
-    "start": "node --experimental-sqlite server.js",
-    "dev":   "node --experimental-sqlite --watch server.js"
+    "start":  "node --experimental-sqlite server.js",
+    "dev":    "node --experimental-sqlite --watch server.js",
+    "worker": "node --experimental-sqlite worker-bazooka.js",
+    "login":  "node --experimental-sqlite worker-bazooka.js --login"
   },
   "dependencies": {
     "bcryptjs":          "^2.4.3",
@@ -15,7 +17,8 @@
     "express":           "^4.18.2",
     "express-rate-limit":"^7.2.0",
     "helmet":            "^7.1.0",
-    "jsonwebtoken":      "^9.0.2"
+    "jsonwebtoken":      "^9.0.2",
+    "puppeteer":         "^22.0.0"
   },
   "engines": {
     "node": ">=22.5.0"
