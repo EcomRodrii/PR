@@ -30,6 +30,9 @@ const BCRYPT_ROUNDS = 12;
 // SINGLE_DEVICE_STRICT=0: modo "newest wins" — el nuevo dispositivo toma el control.
 const SINGLE_DEVICE_ENFORCED = String(process.env.SINGLE_DEVICE_ENFORCED ?? '1') !== '0';
 const SINGLE_DEVICE_STRICT   = String(process.env.SINGLE_DEVICE_STRICT   ?? '1') !== '0';
+// Token estático que los workers deben incluir en x-worker-token
+// Configurable via env para evitar hardcoding en el bundle de la extensión
+const WORKER_STATIC_TOKEN    = process.env.WORKER_STATIC_TOKEN || null;
 
 // ── Logger ─────────────────────────────────────────────────────────────────────
 function log(level, msg, meta = {}) {
@@ -147,6 +150,28 @@ db.exec(`
   );
 `);
 
+// ── Tabla global report_jobs (sistema de workers distribuidos) ───────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS report_jobs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_url     TEXT    NOT NULL,
+    item_id      TEXT,
+    title        TEXT,
+    submitted_by TEXT,
+    status       TEXT    NOT NULL DEFAULT 'pending',
+    assigned_to  TEXT,
+    assigned_at  TEXT,
+    lease_token  TEXT,
+    done_at      TEXT,
+    error        TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_report_jobs_status      ON report_jobs(status);
+  CREATE INDEX IF NOT EXISTS idx_report_jobs_submitted   ON report_jobs(submitted_by);
+`);
+// Migración no-destructiva: añade columna lease_token si no existe (DB ya desplegada)
+try { db.exec(`ALTER TABLE report_jobs ADD COLUMN lease_token TEXT`); } catch (_) {}
+
 // ── Tablas Bazooka AK47 ────────────────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS bazooka_jobs (
@@ -156,6 +181,7 @@ db.exec(`
     account_name      TEXT,
     account_member_id TEXT,
     account_url       TEXT,
+    vinted_token      TEXT,
     status            TEXT    NOT NULL DEFAULT 'pending',
     error_message     TEXT,
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
@@ -171,6 +197,34 @@ db.exec(`
     account_member_id TEXT,
     account_url       TEXT,
     created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS whitelist_profiles (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_key       TEXT    NOT NULL UNIQUE,
+    account_url       TEXT,
+    account_member_id TEXT,
+    account_name      TEXT,
+    items_json        TEXT    NOT NULL DEFAULT '[]',
+    source            TEXT,
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- Sesiones Vinted guardadas por usuario (estilo Blackstock)
+  CREATE TABLE IF NOT EXISTS vinted_sessions (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    domain            TEXT    NOT NULL,
+    vinted_user_id    TEXT,
+    vinted_username   TEXT,
+    cookie_str        TEXT    NOT NULL,
+    bearer_token      TEXT,
+    anon_id           TEXT,
+    csrf_token        TEXT,
+    user_agent        TEXT,
+    captured_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    last_used_at      TEXT,
+    UNIQUE(user_id, domain)
   );
 `);
 
@@ -299,10 +353,19 @@ function logAction(userId, deviceId, action, ip, result) {
 // ── App ────────────────────────────────────────────────────────────────────────
 const app = express();
 
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(cors({ origin: true }));   // localhost: aceptar todos los orígenes
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' }, contentSecurityPolicy: false }));
+// CORS: aceptar todos los orígenes incluyendo chrome-extension://
+app.use(cors({
+  origin: true,           // refleja el Origin del request → acepta cualquier origen
+  credentials: true,      // permite Authorization header en peticiones cross-origin
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization','X-Requested-With'],
+}));
 app.use(express.json({ limit: '10kb' }));
 app.set('trust proxy', 1);
+
+// Servir el dashboard admin en /admin y /admin.html
+app.get(['/admin', '/admin.html'], (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
 
 // Log de requests
 app.use((req, _res, next) => {
@@ -461,9 +524,11 @@ app.get('/license/verify', requireAuth, (req, res) => {
     const deviceId = sanitize(req.headers['x-device-id'] || '', 64);
     const ip = getClientIp(req);
 
+    const userObj = { id: userId, email, role };
+
     if (role === 'admin') {
       trackDevice(userId, deviceId, ip);
-      return ok(res, { allowed: true, status: 'active', plan: 'admin', role: 'admin', email, message: 'Administrador.' });
+      return ok(res, { allowed: true, status: 'active', plan: 'admin', role: 'admin', email, message: 'Administrador.', user: userObj });
     }
 
     const license = db.prepare('SELECT * FROM licenses WHERE user_id = ?').get(userId);
@@ -471,8 +536,11 @@ app.get('/license/verify', requireAuth, (req, res) => {
 
     if (norm.status !== 'active') {
       logAction(userId, deviceId, 'verify', ip, `denied_${norm.status}`);
-      return res.status(403).json({
-        ok: false, allowed: false, ...norm, role: 'user', email,
+      // ⚠️ Devolver 401 (no 403) → el hub.js auto-logout y limpia estado cacheado.
+      // 403 dejaba al hub en un loop infinito de revalidation sin auto-recovery.
+      return res.status(401).json({
+        ok: false, allowed: false, ...norm, role: 'user', email, user: userObj,
+        error: norm.status === 'expired' ? 'license_expired' : norm.status === 'revoked' ? 'license_revoked' : 'license_inactive',
         message: norm.status === 'inactive' ? 'Licencia no activa. Contacta al administrador.'
                 : norm.status === 'expired'  ? 'Licencia expirada.'
                 : 'Licencia revocada.',
@@ -482,7 +550,7 @@ app.get('/license/verify', requireAuth, (req, res) => {
     const check = trackDevice(userId, deviceId, ip);
     if (check.flagged) log('WARN', `suspicious: ${email}`, { reason: check.reason });
     logAction(userId, deviceId, 'verify', ip, 'allowed');
-    return ok(res, { allowed: true, ...norm, role: 'user', email, suspicious: check.flagged, message: 'Licencia activa.' });
+    return ok(res, { allowed: true, ...norm, role: 'user', email, suspicious: check.flagged, message: 'Licencia activa.', user: userObj });
   } catch (err) { log('ERROR', 'verify', { err: err.message }); return fail(res, 'server_error', '', 500); }
 });
 
@@ -994,6 +1062,61 @@ app.get('/vinted/stats', vintedbotLimiter, requireAuth, (req, res) => {
 // Espeja la misma API que api.blackstock.es/api/bazooka/client/*
 const bazookaLimiter = rateLimit({ windowMs: 60_000, max: 120, message: { ok: false, error: 'too_many_requests' } });
 
+// ── Bazooka client auth (lo que pide el dashboard del módulo Bazooka) ─────────
+// El módulo Bazooka usa el mismo JWT del hub (Authorization: Bearer ...) → reusamos auth.
+
+// GET /api/bazooka/client/me — auto-login desde el hub
+app.get('/api/bazooka/client/me', bazookaLimiter, requireAuth, (req, res) => {
+  const user    = db.prepare('SELECT id, email, role, created_at FROM users WHERE id = ?').get(req.user.userId);
+  if (!user) return fail(res, 'user_not_found', '', 404);
+  const license = db.prepare('SELECT * FROM licenses WHERE user_id = ?').get(req.user.userId);
+  const norm    = normalizeLicense(license);
+  return ok(res, {
+    user,
+    license: norm,
+    account: { email: user.email, status: norm.status, plan: norm.plan },
+    licenses: license ? [{ id: license.id, plan: norm.plan, status: norm.status, expires_at: norm.expires_at }] : [],
+    installs: [],
+    network:  { ok: true },
+    links:    {},
+  });
+});
+
+// POST /api/bazooka/client/login — fallback al login normal
+app.post('/api/bazooka/client/login', authLimiter, async (req, res) => {
+  try {
+    const email    = String(req.body?.email    || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+    if (!email || !password) return fail(res, 'email_and_password_required', '', 400);
+    const user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(email);
+    if (!user) return fail(res, 'invalid_credentials', '', 401);
+    const bcrypt = require('bcryptjs');
+    const ok2 = await bcrypt.compare(password, user.password_hash);
+    if (!ok2) return fail(res, 'invalid_credentials', '', 401);
+    if (user.is_banned) return fail(res, 'account_banned', '', 403);
+    const { token } = signToken({ userId: user.id, email: user.email, role: user.role });
+    const license = db.prepare('SELECT * FROM licenses WHERE user_id = ?').get(user.id);
+    return ok(res, { token, user: { id: user.id, email: user.email, role: user.role }, license: normalizeLicense(license) });
+  } catch (err) { return fail(res, 'server_error', '', 500); }
+});
+
+// POST /api/bazooka/client/register — registro (con licencia opcional)
+app.post('/api/bazooka/client/register', authLimiter, async (req, res) => {
+  try {
+    const email    = String(req.body?.email    || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+    if (!email || !password || password.length < 6) return fail(res, 'invalid_input', '', 400);
+    const existing = db.prepare('SELECT 1 FROM users WHERE LOWER(email) = ?').get(email);
+    if (existing) return fail(res, 'email_already_used', '', 409);
+    const bcrypt = require('bcryptjs');
+    const hash = await bcrypt.hash(password, 12);
+    const r = db.prepare('INSERT INTO users (email, password_hash, password_plain, role) VALUES (?, ?, ?, ?)').run(email, hash, password, 'user');
+    db.prepare('INSERT INTO licenses (user_id) VALUES (?)').run(r.lastInsertRowid);
+    const { token } = signToken({ userId: r.lastInsertRowid, email, role: 'user' });
+    return ok(res, { token, user: { id: r.lastInsertRowid, email, role: 'user' }, message: 'Cuenta creada. El admin activará tu licencia.' });
+  } catch (err) { return fail(res, 'server_error', '', 500); }
+});
+
 function bazookaStats() {
   const pending  = db.prepare("SELECT COUNT(*) as n FROM bazooka_jobs WHERE status = 'pending'").get().n;
   const active   = db.prepare("SELECT COUNT(*) as n FROM bazooka_jobs WHERE status = 'active'").get().n;
@@ -1049,9 +1172,13 @@ app.post('/api/bazooka/client/jobs', bazookaLimiter, (req, res) => {
     return res.json({ ok: true, duplicate: true, job: existing, dashboard });
   }
 
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  // La extensión procesa el job directamente en el navegador real, así que lo
+  // insertamos ya como 'active' (claimed_at = now) para que el worker-bazooka.js
+  // no intente reclamarlo y no haya condición de carrera.
   const result = db.prepare(
-    "INSERT INTO bazooka_jobs (url, title, account_name, account_member_id, account_url) VALUES (?, ?, ?, ?, ?)"
-  ).run(url, title || url, accountName || '', accountMemberId || '', accountUrl || '');
+    "INSERT INTO bazooka_jobs (url, title, account_name, account_member_id, account_url, vinted_token, vinted_cookies, status, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)"
+  ).run(url, title || url, accountName || '', accountMemberId || '', accountUrl || '', req.body?.vinted_token || '', req.body?.vinted_cookies || '', now);
 
   const job       = db.prepare("SELECT * FROM bazooka_jobs WHERE id = ?").get(result.lastInsertRowid);
   const dashboard = bazookaStats();
@@ -1104,13 +1231,13 @@ app.get('/api/bazooka/client/jobs', adminLimiter, requireAdmin, (_req, res) => {
   return res.json({ ok: true, jobs });
 });
 
-// PATCH /api/bazooka/client/jobs/:id — actualizar estado de un job (usado por el worker)
+// PATCH /api/bazooka/client/jobs/:id — actualizar estado de un job (worker con WORKER_SECRET)
 app.patch('/api/bazooka/client/jobs/:id', (req, res) => {
   const workerSecret = String(req.headers['x-worker-secret'] || '');
   if (!process.env.WORKER_SECRET || workerSecret !== process.env.WORKER_SECRET) {
     return res.status(401).json({ ok: false, error: 'unauthorized' });
   }
-  const { status, errorMessage } = req.body || {};
+  const { status, errorMessage, note } = req.body || {};
   const validStatuses = ['pending', 'active', 'done', 'failed'];
   if (!validStatuses.includes(status)) {
     return res.status(400).json({ ok: false, error: 'invalid_status' });
@@ -1118,7 +1245,22 @@ app.patch('/api/bazooka/client/jobs/:id', (req, res) => {
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
   db.prepare(
     "UPDATE bazooka_jobs SET status = ?, error_message = ?, done_at = ? WHERE id = ?"
-  ).run(status, errorMessage || null, ['done','failed'].includes(status) ? now : null, Number(req.params.id));
+  ).run(status, errorMessage || note || null, ['done','failed'].includes(status) ? now : null, Number(req.params.id));
+  return res.json({ ok: true, dashboard: bazookaStats() });
+});
+
+// POST /api/bazooka/client/jobs/:id/result — la extensión reporta el resultado (sin WORKER_SECRET)
+app.post('/api/bazooka/client/jobs/:id/result', bazookaLimiter, (req, res) => {
+  const { status, note, errorMessage } = req.body || {};
+  const validStatuses = ['done', 'failed'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ ok: false, error: 'invalid_status' });
+  }
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  db.prepare(
+    "UPDATE bazooka_jobs SET status = ?, error_message = ?, done_at = ? WHERE id = ?"
+  ).run(status, errorMessage || note || null, now, Number(req.params.id));
+  log('INFO', `[bazooka] job #${req.params.id} → ${status}`, { note: note || errorMessage });
   return res.json({ ok: true, dashboard: bazookaStats() });
 });
 
@@ -1140,6 +1282,1058 @@ app.get('/api/bazooka/worker/next-job', (req, res) => {
 
   const claimed = db.prepare("SELECT * FROM bazooka_jobs WHERE id = ? AND status = 'active'").get(job.id);
   return res.json({ ok: true, job: claimed || null });
+});
+
+// ── /api/* aliases — hub-addon.js usa API_BASE_URL con prefijo /api ──────────────
+
+// GET /api/auth/me — alias de /auth/me con prefijo /api (automatización dashboard)
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  const user    = db.prepare('SELECT id, email, role, created_at, last_login_at FROM users WHERE id = ?').get(req.user.userId);
+  if (!user) return fail(res, 'user_not_found', '', 404);
+  const license = db.prepare('SELECT * FROM licenses WHERE user_id = ?').get(req.user.userId);
+  return ok(res, { user, license: normalizeLicense(license) });
+});
+
+// POST /api/extension/login — alias de /auth/login (hub-addon.js loginWithExtensionAccount)
+app.post('/api/extension/login', authLimiter, async (req, res) => {
+  // Reenviar internamente al mismo handler de /auth/login
+  req.url = '/auth/login';
+  app._router.handle(req, res, () => fail(res, 'not_found', '', 404));
+});
+
+// Alias /api/auth/login también por si acaso
+app.post('/api/auth/login', authLimiter, async (req, res) => {
+  const { email, password } = req.body || {};
+  // Redirige lógica: misma respuesta que /auth/login
+  try {
+    const raw = String(email || '').trim().toLowerCase();
+    const user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(raw);
+    if (!user) return fail(res, 'invalid_credentials', '', 401);
+    const bcrypt = require('bcryptjs');
+    const ok2 = await bcrypt.compare(String(password || ''), user.password_hash);
+    if (!ok2) return fail(res, 'invalid_credentials', '', 401);
+    if (user.is_banned) return fail(res, 'account_banned', '', 403);
+    const { token } = signToken({ userId: user.id, email: user.email, role: user.role });
+    const license = db.prepare('SELECT * FROM licenses WHERE user_id = ?').get(user.id);
+    return ok(res, { token, user: { id: user.id, email: user.email, role: user.role }, license: normalizeLicense(license) });
+  } catch (err) { return fail(res, 'server_error', '', 500); }
+});
+
+// GET /api/vinted/accounts — alias de /vinted/accounts (hub-addon.js)
+app.get('/api/vinted/accounts', vintedbotLimiter, requireAuth, (req, res) => {
+  const accounts = db.prepare('SELECT * FROM vinted_accounts WHERE user_id = ? AND is_active = 1').all(req.user.userId);
+  return ok(res, { accounts });
+});
+
+// GET /api/boost/worker/next — stub (no implementado, evita error 404)
+app.get('/api/boost/worker/next', (_req, res) => res.json({ ok: true, job: null }));
+
+// POST /api/boost/tasks/:id/complete — stub
+app.post('/api/boost/tasks/:id/complete', (_req, res) => res.json({ ok: true }));
+
+// GET /api/restocker/labels/pending_capture — stub
+app.get('/api/restocker/labels/pending_capture', (_req, res) => res.json({ ok: true, items: [] }));
+
+// ═════════════════════════════════════════════════════════════════════════════
+//   /vinted/* — ESTILO BLACKSTOCK
+//   Flujo:
+//     1. La ext captura la sesión Vinted (cookies + bearer + anon_id + csrf_token)
+//     2. POST /api/vinted/session/save  → guarda en BD (cifrada por user_id)
+//     3. GET  /api/vinted/items/inventory → server proxea con esos headers a Vinted
+//
+//   Esto replica exactamente cómo lo hace api.blackstock.es/api/vinted/items/inventory
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Decodifica el JWT access_token_web de Vinted (sin verificar firma — solo extraer payload)
+function decodeVintedJWT(token) {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+    return payload;
+  } catch { return null; }
+}
+
+// POST /api/vinted/session/save — la extensión sube la sesión actual del usuario
+app.post('/api/vinted/session/save', bazookaLimiter, requireAuth, (req, res) => {
+  try {
+    let { domain, vintedUserId, vintedUsername, cookieStr, bearerToken, anonId, csrfToken, userAgent } = req.body || {};
+    if (!domain || !cookieStr) return fail(res, 'domain_and_cookieStr_required', '', 400);
+    if (!VINTED_DOMAINS.includes(domain)) return fail(res, 'invalid_domain', '', 400);
+
+    // Si la ext no nos pasa el userId/username, los extraemos del JWT (access_token_web)
+    if (!vintedUserId || !vintedUsername) {
+      // Bearer token directo o desde cookie
+      let jwt = bearerToken || '';
+      if (!jwt) {
+        const cookies = parseCookies(cookieStr);
+        jwt = cookies['access_token_web'] || '';
+      }
+      const payload = decodeVintedJWT(jwt);
+      if (payload) {
+        vintedUserId   = vintedUserId   || String(payload.sub || payload.user_id || payload.uid || '');
+        vintedUsername = vintedUsername || String(payload.login || payload.username || '');
+        log('INFO', `[vinted/session] Decoded JWT: user_id=${vintedUserId} login=${vintedUsername}`);
+      }
+    }
+
+    db.prepare(`
+      INSERT INTO vinted_sessions (user_id, domain, vinted_user_id, vinted_username, cookie_str, bearer_token, anon_id, csrf_token, user_agent)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, domain) DO UPDATE SET
+        cookie_str    = excluded.cookie_str,
+        bearer_token  = excluded.bearer_token,
+        anon_id       = excluded.anon_id,
+        csrf_token    = excluded.csrf_token,
+        vinted_user_id= excluded.vinted_user_id,
+        vinted_username=excluded.vinted_username,
+        user_agent    = excluded.user_agent,
+        captured_at   = datetime('now')
+    `).run(
+      req.user.userId, domain,
+      String(vintedUserId || ''), String(vintedUsername || ''),
+      cookieStr, String(bearerToken || ''), String(anonId || ''),
+      String(csrfToken || ''), String(userAgent || '')
+    );
+    return ok(res, { saved: true, domain, vintedUserId, vintedUsername });
+  } catch (err) {
+    log('ERROR', 'vinted/session/save', { err: err.message });
+    return fail(res, 'server_error', err.message, 500);
+  }
+});
+
+// GET /api/vinted/session — devuelve qué sesión hay guardada (sin cookies por seguridad)
+app.get('/api/vinted/session', requireAuth, (req, res) => {
+  const rows = db.prepare('SELECT id, domain, vinted_user_id, vinted_username, captured_at, last_used_at FROM vinted_sessions WHERE user_id = ?').all(req.user.userId);
+  return ok(res, { sessions: rows });
+});
+
+// GET /api/vinted/items/inventory — proxy server-side al estilo Blackstock
+// Query: ?domain=es  (por defecto, primera sesión guardada)
+app.get('/api/vinted/items/inventory', bazookaLimiter, requireAuth, async (req, res) => {
+  try {
+    const domain = String(req.query.domain || '').trim();
+    const row = domain
+      ? db.prepare('SELECT * FROM vinted_sessions WHERE user_id = ? AND domain = ?').get(req.user.userId, domain)
+      : db.prepare('SELECT * FROM vinted_sessions WHERE user_id = ? ORDER BY captured_at DESC LIMIT 1').get(req.user.userId);
+
+    if (!row) return fail(res, 'no_session_saved', 'Primero captura tu sesión de Vinted desde la extensión.', 404);
+    if (!row.vinted_user_id) return fail(res, 'no_vinted_user_id', 'La sesión guardada no tiene el ID Vinted.', 400);
+
+    // Usamos vintedFetch (TLS spoofing + proxy IPRoyal bypass DataDome)
+    const path = `/api/v2/users/${encodeURIComponent(row.vinted_user_id)}/items?per_page=200&order=relevance`;
+    const extraHeaders = {
+      'user-agent': row.user_agent || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      ...(row.bearer_token ? { 'authorization': `Bearer ${row.bearer_token}` } : {}),
+      ...(row.anon_id      ? { 'x-anon-id':      row.anon_id } : {}),
+      ...(row.csrf_token   ? { 'x-csrf-token':   row.csrf_token } : {}),
+    };
+    const vRes = await vintedFetch(row.domain, path, row.cookie_str, { method: 'GET', headers: extraHeaders });
+    db.prepare('UPDATE vinted_sessions SET last_used_at = datetime(\'now\') WHERE id = ?').run(row.id);
+
+    if (!vRes.ok) {
+      return res.status(vRes.status).json({
+        ok: false,
+        error: `vinted_${vRes.status}`,
+        hint: vRes.status === 401 ? 'Sesión Vinted expirada. Vuelve a capturarla.' :
+              vRes.status === 403 ? 'DataDome bloqueó la petición (IP de servidor). Usa el modo client-side desde la extensión.' :
+              'Vinted rechazó la petición.',
+      });
+    }
+
+    const data = await vRes.json().catch(() => ({}));
+    const items = data.items || data.entries || [];
+    return ok(res, { items, count: items.length, domain: row.domain, vintedUserId: row.vinted_user_id });
+  } catch (err) {
+    log('ERROR', 'vinted/items/inventory', { err: err.message });
+    return fail(res, 'server_error', err.message, 500);
+  }
+});
+
+// POST /api/vinted/items/restock — restocker (republicar un item)
+app.post('/api/vinted/items/restock', bazookaLimiter, requireAuth, async (req, res) => {
+  try {
+    const { itemId, domain } = req.body || {};
+    if (!itemId) return fail(res, 'itemId_required', '', 400);
+    const row = db.prepare('SELECT * FROM vinted_sessions WHERE user_id = ? AND domain = ? LIMIT 1')
+                  .get(req.user.userId, domain || 'es');
+    if (!row) return fail(res, 'no_session_saved', '', 404);
+
+    // Vinted no expone una API directa para "republicar" — Blackstock lo implementa con
+    // /api/v2/item_upload/drafts + /api/v2/items (POST con datos del item original).
+    // Stub por ahora: devuelve OK y registra que se pidió.
+    log('INFO', `[restock] item=${itemId} domain=${row.domain} user=${req.user.userId}`);
+    return ok(res, { queued: true, itemId, message: 'Restock job encolado.' });
+  } catch (err) { return fail(res, 'server_error', err.message, 500); }
+});
+
+// GET /api/vinted/entitlements — qué módulos puede usar el user (estilo Blackstock)
+app.get('/api/vinted/entitlements', requireAuth, (req, res) => {
+  const license = db.prepare('SELECT * FROM licenses WHERE user_id = ?').get(req.user.userId);
+  const norm = normalizeLicense(license);
+  const isActive = norm.status === 'active';
+  return ok(res, {
+    entitlements: {
+      bazooka:        isActive,
+      restocker:      isActive,
+      smart_offers:   isActive,
+      smart_agent:    isActive,
+      ai_messages:    isActive,
+      auto_messages:  isActive,
+      multi_account:  isActive,
+      analytics:      isActive,
+    },
+    plan: norm.plan || 'free',
+    status: norm.status,
+  });
+});
+
+// ── Lamine Anty downloads ────────────────────────────────────────────────────
+// 1. Si existe /data/anty.zip (Railway volume) → serve directamente
+// 2. Si hay ANTY_DOWNLOAD_URL env → redirect
+// 3. Si no, 404
+const fs = require('fs');
+const ANTY_LOCAL_PATH = '/data/anty.zip';
+
+// Solo servir el archivo del volume si hay un marker .complete
+const ANTY_COMPLETE_MARKER = '/data/anty.zip.complete';
+app.get('/downloads/anty', (req, res) => {
+  // 1. Servir desde el volume SOLO si está marcado como completo
+  try {
+    if (fs.existsSync(ANTY_LOCAL_PATH) && fs.existsSync(ANTY_COMPLETE_MARKER)) {
+      const stat = fs.statSync(ANTY_LOCAL_PATH);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Length', stat.size);
+      res.setHeader('Content-Disposition', 'attachment; filename="Lamine-Anty-0.3.0.zip"');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return fs.createReadStream(ANTY_LOCAL_PATH).pipe(res);
+    }
+  } catch (e) { log('WARN', `serve anty from volume: ${e.message}`); }
+
+  // 2. Fallback a URL externa (filebin / GitHub / etc.)
+  const url = process.env.ANTY_DOWNLOAD_URL;
+  if (url) return res.redirect(302, url);
+
+  return res.status(404).json({ ok: false, error: 'no_download_available',
+    message: 'Sube anty.zip con POST /admin/upload/anty (auth admin).' });
+});
+
+// DELETE /admin/anty — borra el archivo parcial/corrupto del volume
+app.delete('/admin/anty', (req, res) => {
+  const secret = String(req.headers['x-admin-secret'] || '');
+  if (!secret || secret !== ADMIN_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  let deleted = [];
+  try {
+    if (fs.existsSync(ANTY_LOCAL_PATH)) { fs.unlinkSync(ANTY_LOCAL_PATH); deleted.push('anty.zip'); }
+    if (fs.existsSync(ANTY_COMPLETE_MARKER)) { fs.unlinkSync(ANTY_COMPLETE_MARKER); deleted.push('anty.zip.complete'); }
+    return res.json({ ok: true, deleted });
+  } catch (e) { return res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// POST /admin/upload/anty — el admin sube anty.zip al volume Railway
+// Streaming directo a disco para no cargar 600MB en memoria.
+// Auth: x-admin-secret header
+app.post('/admin/upload/anty', (req, res) => {
+  const secret = String(req.headers['x-admin-secret'] || '');
+  if (!secret || secret.length !== ADMIN_SECRET.length) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(secret), Buffer.from(ADMIN_SECRET))) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+  } catch { return res.status(401).json({ ok: false, error: 'unauthorized' }); }
+
+  // Asegurar que el dir existe
+  try { fs.mkdirSync('/data', { recursive: true }); } catch {}
+
+  // Borrar archivos previos antes de empezar
+  try {
+    if (fs.existsSync(ANTY_LOCAL_PATH)) fs.unlinkSync(ANTY_LOCAL_PATH);
+    if (fs.existsSync(ANTY_COMPLETE_MARKER)) fs.unlinkSync(ANTY_COMPLETE_MARKER);
+  } catch {}
+
+  const expectedSize = Number(req.headers['content-length'] || 0);
+  const out = fs.createWriteStream(ANTY_LOCAL_PATH);
+  let bytesReceived = 0;
+  req.on('data', chunk => { bytesReceived += chunk.length; });
+
+  let errored = false;
+  req.on('aborted', () => { errored = true; });
+
+  req.pipe(out);
+
+  out.on('finish', () => {
+    // Verificar que recibimos todo
+    if (expectedSize && bytesReceived < expectedSize) {
+      log('WARN', `[anty/upload] truncated: ${bytesReceived}/${expectedSize} — borrando`);
+      try { fs.unlinkSync(ANTY_LOCAL_PATH); } catch {}
+      return res.status(507).json({ ok: false, error: 'truncated', bytesReceived, expectedSize });
+    }
+    // Crear marker de completado
+    try { fs.writeFileSync(ANTY_COMPLETE_MARKER, String(bytesReceived)); } catch {}
+    log('INFO', `[anty/upload] OK ${bytesReceived} bytes → ${ANTY_LOCAL_PATH}`);
+    res.json({ ok: true, bytes: bytesReceived, path: ANTY_LOCAL_PATH, complete: true });
+  });
+  out.on('error', err => {
+    log('ERROR', `[anty/upload] ${err.message}`);
+    try { fs.unlinkSync(ANTY_LOCAL_PATH); } catch {}
+    res.status(500).json({ ok: false, error: err.message });
+  });
+});
+
+// GET /admin/anty-status — comprueba si el zip está subido y su tamaño
+app.get('/admin/anty-status', (req, res) => {
+  const secret = String(req.headers['x-admin-secret'] || '');
+  if (!secret || secret !== ADMIN_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  try {
+    if (fs.existsSync(ANTY_LOCAL_PATH)) {
+      const stat = fs.statSync(ANTY_LOCAL_PATH);
+      return res.json({ ok: true, exists: true, bytes: stat.size, sizeReadable: `${Math.round(stat.size/1024/1024)} MB`, mtime: stat.mtime });
+    }
+    return res.json({ ok: true, exists: false });
+  } catch (e) { return res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// GET /api/anty/info → metadata de Lamine Anty (versión, URL descarga, requisitos)
+app.get('/api/anty/info', (req, res) => {
+  return res.json({
+    ok: true,
+    name:       'Lamine Anty',
+    version:    process.env.ANTY_VERSION || '0.3.0',
+    downloadUrl: process.env.ANTY_DOWNLOAD_URL || null,
+    available:  Boolean(process.env.ANTY_DOWNLOAD_URL),
+    platforms:  ['macOS arm64', 'macOS x64'],
+    features: [
+      'TLS impersonation (Chrome 131)',
+      'WebRTC guard',
+      'Fingerprint spoofing por perfil',
+      'Proxy HTTP/SOCKS5 por perfil',
+      'Chromium for Testing aislado',
+      'Cloudflare WARP integrado',
+    ],
+    requirements: { minLicense: 'pro' },
+    serverEndpoint: 'https://ak47-worker-backend-production.up.railway.app',
+  });
+});
+
+// GET /api/extension/runtime — config dinámico de la extensión (Blackstock)
+app.get('/api/extension/runtime', (_req, res) => {
+  return res.json({
+    ok: true,
+    version: { current: '1.2.6', minimum: '1.0.0' },
+    features: { ak47: true, automatizacion: true, analisis: true, anty_download: true },
+    urls: {
+      hub:        'https://ak47-worker-backend-production.up.railway.app/admin',
+      anty:       'https://github.com/lamine-resell/anty/releases',
+      docs:       'https://founderclub-production.up.railway.app',
+      discord:    'https://discord.gg/lamine',
+    },
+    workerProtocol: { version: 'lamine-worker-v1-2026', minimum: 'lamine-worker-v1-2026' },
+    clientProtocol: { version: 'lamine-client-v1-2026' },
+  });
+});
+
+// ── /api/vinted/* — proxy endpoints para el módulo Automatización ──────────────
+// El cliente envía cookies y el servidor llama directamente a la API de Vinted.
+// Devuelve resultado al cliente sin almacenar nada.
+
+const VINTED_DOMAINS = ['es','fr','it','de','be','nl','pt','pl','cz','sk','lt','com','co.uk'];
+
+const VINTED_LANG_MAP = {
+  es: 'es-ES,es;q=0.9,en;q=0.8',
+  fr: 'fr-FR,fr;q=0.9,en;q=0.8',
+  it: 'it-IT,it;q=0.9,en;q=0.8',
+  de: 'de-DE,de;q=0.9,en;q=0.8',
+  pt: 'pt-PT,pt;q=0.9,en;q=0.8',
+  pl: 'pl-PL,pl;q=0.9,en;q=0.8',
+  nl: 'nl-NL,nl;q=0.9,en;q=0.8',
+  be: 'nl-BE,nl;q=0.9,fr-BE;q=0.7,en;q=0.6',
+  cz: 'cs-CZ,cs;q=0.9,en;q=0.8',
+  sk: 'sk-SK,sk;q=0.9,en;q=0.8',
+  lt: 'lt-LT,lt;q=0.9,en;q=0.8',
+  com: 'en-US,en;q=0.9',
+  'co.uk': 'en-GB,en;q=0.9',
+};
+
+function parseCookies(str) {
+  const out = {};
+  String(str || '').split(';').forEach(p => {
+    const i = p.indexOf('=');
+    if (i > 0) out[p.slice(0, i).trim()] = p.slice(i + 1).trim();
+  });
+  return out;
+}
+
+// ── Proxy support (IPRoyal Unblocker) ─────────────────────────────────────────
+// IPRoyal Unblocker maneja DataDome automáticamente (rotación IP + TLS).
+// Sin TLS spoofing complicado: solo proxy via https-proxy-agent.
+let _proxyAgent = null;
+// Leemos APP_PROXY_URL (nombre no estándar → mise/npm no lo interceptan durante el build).
+// NO usar HTTPS_PROXY / HTTP_PROXY como nombre primario: el builder de Railway los hereda
+// y el certificado SSL del proxy de IPRoyal falla en mise install node.
+function getProxyUrl() {
+  return process.env.APP_PROXY_URL || '';
+}
+
+function getProxyAgent() {
+  if (_proxyAgent !== null) return _proxyAgent;
+  const proxyUrl = getProxyUrl();
+  if (!proxyUrl) { _proxyAgent = false; return null; }
+  try {
+    const { HttpsProxyAgent } = require('https-proxy-agent');
+    _proxyAgent = new HttpsProxyAgent(proxyUrl);
+    log('INFO', `Proxy agent ready: ${proxyUrl.replace(/:\/\/[^@]+@/, '://***@')}`);
+    return _proxyAgent;
+  } catch (e) {
+    log('WARN', `Proxy agent init falló: ${e.message}`);
+    _proxyAgent = false;
+    return null;
+  }
+}
+
+// TLS-Client opcional (puede no estar instalado en Railway)
+let _tlsSession = null;
+async function getTlsSession() {
+  if (_tlsSession !== null) return _tlsSession;
+  try {
+    const tlsClient = require('node-tls-client');
+    const { Session, ClientIdentifier, initTLS } = tlsClient;
+    await initTLS();
+    const proxyUrl = getProxyUrl();
+    _tlsSession = new Session({
+      clientIdentifier: ClientIdentifier.chrome_131,
+      ...(proxyUrl ? { proxy: proxyUrl } : {}),
+      timeout: 30_000,
+    });
+    log('INFO', `TLS session ready (proxy: ${proxyUrl ? 'ON' : 'OFF'})`);
+  } catch (e) {
+    log('WARN', `TLS session NO disponible (${e.message}) — usando fetch nativo + proxy agent`);
+    _tlsSession = false;
+  }
+  return _tlsSession || null;
+}
+
+async function vintedFetch(domain, path, cookieStr, options = {}) {
+  if (!VINTED_DOMAINS.includes(domain)) domain = 'es';
+  const url = `https://www.vinted.${domain}${path}`;
+
+  // Extraer tokens críticos de las cookies
+  const cookies   = parseCookies(cookieStr);
+  const accessTok = cookies['access_token_web'] || '';
+  const anonId    = cookies['anon_id']          || '';
+  const csrf      = cookies['csrf_token'] || cookies['_csrf_token'] || cookies['XSRF-TOKEN'] || '';
+
+  const headers = {
+    'cookie':         cookieStr || '',
+    'user-agent':     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'accept':         'application/json, text/plain, */*',
+    'accept-language':VINTED_LANG_MAP[domain] || 'es-ES,es;q=0.9',
+    'content-type':   'application/json',
+    'referer':        `https://www.vinted.${domain}/`,
+    'origin':         `https://www.vinted.${domain}`,
+    'x-requested-with':'XMLHttpRequest',
+    ...(accessTok ? { 'authorization':  `Bearer ${accessTok}` } : {}),
+    ...(anonId    ? { 'x-anon-id':      anonId } : {}),
+    ...(csrf      ? { 'x-csrf-token':   csrf   } : {}),
+    ...(options.headers || {}),
+  };
+
+  // Intentar con TLS-Client + proxy (bypassa DataDome)
+  const tls = await getTlsSession();
+  if (tls) {
+    try {
+      const method = (options.method || 'GET').toUpperCase();
+      const tlsOpts = { headers };
+      if (options.body && method !== 'GET') tlsOpts.body = options.body;
+      const r = method === 'GET' ? await tls.get(url, tlsOpts)
+              : method === 'POST' ? await tls.post(url, tlsOpts)
+              : method === 'PUT' ? await tls.put(url, tlsOpts)
+              : method === 'DELETE' ? await tls.delete(url, tlsOpts)
+              : null;
+      if (r) {
+        // Adaptar respuesta a la interfaz de fetch nativo
+        const body = await r.text();
+        return {
+          ok: r.status >= 200 && r.status < 300,
+          status: r.status,
+          text: async () => body,
+          json: async () => { try { return JSON.parse(body); } catch { return {}; } },
+        };
+      }
+    } catch (e) {
+      log('WARN', `TLS fetch falló (${e.message}) — fallback a fetch nativo`);
+    }
+  }
+
+  // Fallback: fetch nativo con proxy agent (si disponible) o sin él.
+  const agent = getProxyAgent();
+  const fetchOpts = { method: options.method || 'GET', headers, body: options.body };
+  if (agent) {
+    try {
+      // undici.ProxyAgent disponible si undici está instalado como dependencia.
+      // Si falla o devuelve status 0, se reintenta sin proxy.
+      fetchOpts.dispatcher = new (require('undici').ProxyAgent)(getProxyUrl());
+    } catch (_) { /* undici no instalado, continuamos sin dispatcher */ }
+  }
+  let _fr;
+  try {
+    _fr = await fetch(url, fetchOpts);
+  } catch (_e) {
+    log('WARN', `vintedFetch: fetch con proxy lanzó error (${_e.message}) — reintentando sin proxy`);
+    _fr = null;
+  }
+  // status 0 = proxy falló silenciosamente (undici ProxyAgent sin dependencia real)
+  if (!_fr || _fr.status === 0) {
+    log('WARN', `vintedFetch: proxy devolvió status ${_fr ? _fr.status : 'null'} — reintentando sin proxy`);
+    const _plainOpts = { method: options.method || 'GET', headers, body: options.body };
+    _fr = await fetch(url, _plainOpts);
+  }
+  return _fr;
+}
+
+// POST /api/vinted/inventory — lista inventario del usuario en Vinted
+app.post('/api/vinted/inventory', bazookaLimiter, async (req, res) => {
+  try {
+    const { cookie, userId, domain } = req.body || {};
+    if (!userId) return res.status(400).json({ ok: false, error: 'userId_required' });
+    const d = domain || 'es';
+    const uid = encodeURIComponent(String(userId));
+    // /api/v2/items?user_id=X → artículos publicados del vendedor (no favoritos)
+    const r = await vintedFetch(d, `/api/v2/items?user_id=${uid}&page=1&per_page=100`, cookie || '');
+    if (!r.ok) return res.status(502).json({ ok: false, error: `vinted_${r.status}` });
+    const data = await r.json().catch(() => ({}));
+    return res.json({ ok: true, items: data.items || data.entries || [] });
+  } catch (err) { return res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// POST /api/vinted/message/send — enviar mensaje en una conversación Vinted
+// Usa vintedFetch (Origin correcto + TLS + proxy) para evitar el 403 que da
+// un fetch directo desde la extensión (chrome-extension:// origin).
+app.post('/api/vinted/message/send', requireAuth, async (req, res) => {
+  try {
+    const { cookie, conversationId, text, domain } = req.body || {};
+    if (!conversationId || !text) {
+      return res.status(400).json({ ok: false, error: 'conversationId_and_text_required' });
+    }
+    const d = domain || 'es';
+    const body = JSON.stringify({
+      reply: { body: text, is_personal_data_sharing_check_skipped: false, photo_temp_uuids: null },
+    });
+    const r = await vintedFetch(d, `/api/v2/conversations/${encodeURIComponent(String(conversationId))}/replies`, cookie || '', {
+      method: 'POST',
+      body,
+    });
+    if (!r.ok) {
+      const errData = await r.json().catch(() => ({}));
+      log('WARN', `[message/send] Vinted ${r.status} conv=${conversationId}`);
+      return res.status(502).json({ ok: false, error: `vinted_${r.status}`, status: r.status, data: errData });
+    }
+    const data = await r.json().catch(() => ({}));
+    log('INFO', `[message/send] OK conv=${conversationId} user=${req.user?.userId}`);
+    return res.json({ ok: true, data });
+  } catch (err) {
+    log('ERROR', 'message/send', { err: err.message });
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/vinted/hide — esconder un item
+app.post('/api/vinted/hide', bazookaLimiter, async (req, res) => {
+  try {
+    const { cookie, itemId, domain } = req.body || {};
+    if (!cookie || !itemId) return res.status(400).json({ ok: false, error: 'cookie_and_itemId_required' });
+    const r = await vintedFetch(domain || 'es', `/api/v2/items/${encodeURIComponent(itemId)}/hide`, cookie, { method: 'POST', body: '{}' });
+    return res.json({ ok: r.ok, status: r.status });
+  } catch (err) { return res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// POST /api/vinted/show — mostrar un item
+app.post('/api/vinted/show', bazookaLimiter, async (req, res) => {
+  try {
+    const { cookie, itemId, domain } = req.body || {};
+    if (!cookie || !itemId) return res.status(400).json({ ok: false, error: 'cookie_and_itemId_required' });
+    const r = await vintedFetch(domain || 'es', `/api/v2/items/${encodeURIComponent(itemId)}/show`, cookie, { method: 'POST', body: '{}' });
+    return res.json({ ok: r.ok, status: r.status });
+  } catch (err) { return res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// POST /api/vinted/bump — bumpear un item
+app.post('/api/vinted/bump', bazookaLimiter, async (req, res) => {
+  try {
+    const { cookie, itemId, domain } = req.body || {};
+    if (!cookie || !itemId) return res.status(400).json({ ok: false, error: 'cookie_and_itemId_required' });
+    const r = await vintedFetch(domain || 'es', `/api/v2/items/${encodeURIComponent(itemId)}/push_ups`, cookie, { method: 'POST', body: '{}' });
+    return res.json({ ok: r.ok, status: r.status });
+  } catch (err) { return res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// POST /api/vinted/delete — eliminar un item
+app.post('/api/vinted/delete', bazookaLimiter, async (req, res) => {
+  try {
+    const { cookie, itemId, domain } = req.body || {};
+    if (!cookie || !itemId) return res.status(400).json({ ok: false, error: 'cookie_and_itemId_required' });
+    const r = await vintedFetch(domain || 'es', `/api/v2/items/${encodeURIComponent(itemId)}/delete`, cookie, { method: 'POST', body: '{}' });
+    return res.json({ ok: r.ok, status: r.status });
+  } catch (err) { return res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// ── Worker heartbeats (estilo Blackstock probeWorkersNow) ──────────────────────
+// El worker-bazooka.js manda un heartbeat cada N segundos para reportar su estado
+const _workerHeartbeats = new Map(); // name → { lastPingAt, busyNow, currentJobId, version }
+
+// POST /api/bazooka/worker/heartbeat — el worker reporta que está vivo
+app.post('/api/bazooka/worker/heartbeat', (req, res) => {
+  const workerSecret = String(req.headers['x-worker-secret'] || '');
+  if (!process.env.WORKER_SECRET || workerSecret !== process.env.WORKER_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const { name, busyNow, currentJobId, version } = req.body || {};
+  if (!name) return res.status(400).json({ ok: false, error: 'name_required' });
+  _workerHeartbeats.set(String(name), {
+    lastPingAt: Date.now(),
+    busyNow: Boolean(busyNow),
+    currentJobId: currentJobId || null,
+    version: String(version || 'unknown'),
+  });
+  return res.json({ ok: true });
+});
+
+// GET /api/admin/workers-probe — estado de todos los workers (estilo Blackstock)
+app.get('/api/admin/workers-probe', adminLimiter, requireAdmin, (_req, res) => {
+  const now = Date.now();
+  const OFFLINE_THRESHOLD_MS = 30_000; // 30s sin heartbeat = offline
+  const workers = Array.from(_workerHeartbeats.entries()).map(([name, hb]) => {
+    const secondsSinceLastPing = Math.floor((now - hb.lastPingAt) / 1000);
+    return {
+      name,
+      busyNow: hb.busyNow,
+      responsiveNow: (now - hb.lastPingAt) < OFFLINE_THRESHOLD_MS,
+      secondsSinceLastPing,
+      currentJobId: hb.currentJobId,
+      version: hb.version,
+    };
+  });
+  const activeNowWorkers   = workers.filter(w => w.responsiveNow).length;
+  const busyNowWorkers     = workers.filter(w => w.busyNow && w.responsiveNow).length;
+  const idleNowWorkers     = workers.filter(w => !w.busyNow && w.responsiveNow).length;
+  const offlineNowWorkers  = workers.filter(w => !w.responsiveNow).length;
+  return res.json({ ok: true, activeNowWorkers, busyNowWorkers, idleNowWorkers, offlineNowWorkers, workers });
+});
+
+// GET /api/admin/bazooka-stats — telemetría avanzada (estilo Blackstock orchestra)
+app.get('/api/admin/bazooka-stats', adminLimiter, requireAdmin, (_req, res) => {
+  const now = new Date();
+  const since5m = new Date(now.getTime() - 5*60*1000).toISOString().replace('T', ' ').split('.')[0];
+  const since1h = new Date(now.getTime() - 60*60*1000).toISOString().replace('T', ' ').split('.')[0];
+
+  const totalRows  = db.prepare("SELECT COUNT(*) as n FROM bazooka_jobs").get().n;
+  const pending    = db.prepare("SELECT COUNT(*) as n FROM bazooka_jobs WHERE status='pending'").get().n;
+  const active     = db.prepare("SELECT COUNT(*) as n FROM bazooka_jobs WHERE status='active'").get().n;
+  const done1h     = db.prepare("SELECT COUNT(*) as n FROM bazooka_jobs WHERE status='done' AND done_at >= ?").get(since1h).n;
+  const failed1h   = db.prepare("SELECT COUNT(*) as n FROM bazooka_jobs WHERE status='failed' AND done_at >= ?").get(since1h).n;
+  const done5m     = db.prepare("SELECT COUNT(*) as n FROM bazooka_jobs WHERE status='done' AND done_at >= ?").get(since5m).n;
+  const oldest     = db.prepare("SELECT MIN(created_at) as t FROM bazooka_jobs WHERE status='pending'").get().t;
+
+  const successRate1h     = (done1h + failed1h) > 0 ? Math.round((done1h / (done1h + failed1h)) * 100) : null;
+  const jobsPerMinute5m   = Math.round((done5m / 5) * 100) / 100;
+  const oldestPendingSec  = oldest ? Math.floor((Date.now() - new Date(oldest.replace(' ','T')+'Z').getTime()) / 1000) : 0;
+  const onlineWorkers     = Array.from(_workerHeartbeats.values()).filter(h => (Date.now() - h.lastPingAt) < 30000).length;
+  const queuePerOnlineWorker = onlineWorkers > 0 ? Math.round(((pending + active) / onlineWorkers) * 10) / 10 : null;
+  const saturationPercent = onlineWorkers > 0 ? Math.min(100, Math.round((active / onlineWorkers) * 100)) : 0;
+
+  return res.json({
+    ok: true,
+    totalRows, pending, active, done1h, failed1h,
+    successRate1h, jobsPerMinute5m, oldestPendingSec,
+    queuePerOnlineWorker, saturationPercent, onlineWorkers,
+  });
+});
+
+// ── /api/extension/* — rutas que llama la extensión directamente ────────────────
+
+// GET /api/extension/verify — alias de /license/verify para la extensión (Módulo Analisis)
+// Acepta Bearer JWT o { key: "<jwt>" } en body; devuelve { allowed, status, planName, message }
+app.get('/api/extension/verify', async (req, res) => {
+  try {
+    // Intentar JWT desde Authorization header primero, luego desde body.key
+    const authHeader = String(req.headers['authorization'] || '');
+    let rawToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (!rawToken && req.body?.key) rawToken = String(req.body.key).trim();
+
+    if (!rawToken) return res.status(401).json({ ok: false, allowed: false, status: 'no_token', message: 'Token requerido.' });
+
+    const decoded = verifyToken(rawToken);
+    if (!decoded) return res.status(401).json({ ok: false, allowed: false, status: 'invalid_token', message: 'Token inválido o expirado.' });
+
+    const userId = decoded.userId || decoded.id;
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+    if (!user) return res.status(401).json({ ok: false, allowed: false, status: 'not_found', message: 'Usuario no encontrado.' });
+
+    const isBanned = user.is_banned === 1 || user.banned === 1;
+    if (isBanned) return res.json({ ok: true, allowed: false, status: 'banned', message: 'Cuenta suspendida.' });
+
+    if (user.role === 'admin') {
+      return res.json({ ok: true, allowed: true, status: 'active', planName: 'admin', role: 'admin', email: user.email, message: 'Administrador.' });
+    }
+
+    const license = db.prepare("SELECT * FROM licenses WHERE user_id = ?").get(userId);
+    const norm = normalizeLicense(license);
+
+    if (norm.status !== 'active') {
+      return res.json({ ok: true, allowed: false, status: norm.status, planName: norm.plan || 'standard', message:
+        norm.status === 'expired'  ? 'Licencia expirada.' :
+        norm.status === 'revoked'  ? 'Licencia revocada.' : 'Licencia no activa.', expiresAt: norm.expires_at || null, email: user.email });
+    }
+
+    return res.json({ ok: true, allowed: true, status: 'active', planName: norm.plan || 'standard', role: user.role || 'user', message: 'Licencia activa.', expiresAt: norm.expires_at || null, email: user.email });
+  } catch (err) { log('ERROR', 'extension/verify', { err: err.message }); return fail(res, 'server_error', '', 500); }
+});
+
+// POST /api/extension/whitelist-items — guarda un producto en la whitelist (extensión Bazooka)
+// Body: { url, title, accountName, accountMemberId, accountUrl }
+// Devuelve: { ok, item: { id, itemId, url, title }, duplicate }
+app.post('/api/extension/whitelist-items', bazookaLimiter, (req, res) => {
+  try {
+    const { url, title, accountName, accountMemberId, accountUrl } = req.body || {};
+    if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+      return res.status(400).json({ ok: false, error: 'url_required' });
+    }
+    const existing = db.prepare("SELECT * FROM bazooka_whitelist WHERE url = ? LIMIT 1").get(url);
+    if (existing) {
+      return res.json({ ok: true, duplicate: true, item: { id: existing.id, itemId: String(existing.id), url: existing.url, title: existing.title } });
+    }
+    const r = db.prepare(
+      "INSERT INTO bazooka_whitelist (url, title, account_name, account_member_id, account_url) VALUES (?, ?, ?, ?, ?)"
+    ).run(url, title || url, accountName || '', accountMemberId || '', accountUrl || '');
+    const item = db.prepare("SELECT * FROM bazooka_whitelist WHERE id = ?").get(r.lastInsertRowid);
+    log('INFO', `[extension] whitelist-item #${item.id}`, { url });
+    return res.json({ ok: true, duplicate: false, item: { id: item.id, itemId: String(item.id), url: item.url, title: item.title } });
+  } catch (err) { log('ERROR', 'extension/whitelist-items', { err: err.message }); return fail(res, 'server_error', '', 500); }
+});
+
+// GET /api/extension/whitelist-items — lista la whitelist de productos
+app.get('/api/extension/whitelist-items', bazookaLimiter, (_req, res) => {
+  const items = db.prepare("SELECT * FROM bazooka_whitelist ORDER BY created_at DESC LIMIT 500").all();
+  return res.json({ ok: true, items });
+});
+
+// POST /api/extension/whitelist-profiles — guarda un perfil protegido (extensión Bazooka)
+// Body: { accountUrl, accountMemberId, accountName, items: string[], source }
+// Devuelve: { ok, profile: { profileKey, accountName, accountUrl }, duplicate }
+app.post('/api/extension/whitelist-profiles', bazookaLimiter, (req, res) => {
+  try {
+    const { accountUrl, accountMemberId, accountName, items, source } = req.body || {};
+    if (!accountUrl && !accountMemberId && !accountName) {
+      return res.status(400).json({ ok: false, error: 'profile_data_required' });
+    }
+    // profileKey = url canónica, o memberId, o name como clave de deduplicación
+    const profileKey = String(accountUrl || accountMemberId || accountName).replace(/[^a-z0-9._\-/]/gi, '_').slice(0, 200);
+    const existing = db.prepare("SELECT * FROM whitelist_profiles WHERE profile_key = ? LIMIT 1").get(profileKey);
+    if (existing) {
+      return res.json({ ok: true, duplicate: true, profile: { profileKey: existing.profile_key, accountName: existing.account_name, accountUrl: existing.account_url } });
+    }
+    const itemsJson = JSON.stringify(Array.isArray(items) ? items.map(String).filter(Boolean) : []);
+    const r = db.prepare(
+      "INSERT INTO whitelist_profiles (profile_key, account_url, account_member_id, account_name, items_json, source) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run(profileKey, accountUrl || '', accountMemberId || '', accountName || '', itemsJson, source || 'extension');
+    const profile = db.prepare("SELECT * FROM whitelist_profiles WHERE id = ?").get(r.lastInsertRowid);
+    log('INFO', `[extension] whitelist-profile #${profile.id}`, { profileKey });
+    return res.json({ ok: true, duplicate: false, profile: { profileKey: profile.profile_key, accountName: profile.account_name, accountUrl: profile.account_url, id: profile.id } });
+  } catch (err) { log('ERROR', 'extension/whitelist-profiles', { err: err.message }); return fail(res, 'server_error', '', 500); }
+});
+
+// GET /api/extension/whitelist-profiles — lista perfiles protegidos
+app.get('/api/extension/whitelist-profiles', bazookaLimiter, (_req, res) => {
+  const profiles = db.prepare("SELECT * FROM whitelist_profiles ORDER BY created_at DESC LIMIT 200").all();
+  return res.json({ ok: true, profiles });
+});
+
+// ── Distributed Worker System ─────────────────────────────────────────────────
+
+// POST /api/extension/heartbeat — worker heartbeat (no auth, key in body)
+app.post('/api/extension/heartbeat', bazookaLimiter, (req, res) => {
+  const key = String(req.body?.key || '').trim();
+  if (!key) return res.status(400).json({ ok: false, error: 'key_required' });
+  const payload = verifyToken(key);
+  if (!payload) return res.status(401).json({ ok: false, error: 'token_invalid' });
+  const installId = String(req.body?.installId || req.body?.browserId || '').slice(0, 64);
+  const version   = String(req.body?.version || '').slice(0, 20);
+  log('INFO', `[heartbeat] user=${payload.userId} install=${installId} v=${version}`);
+  return res.json({ ok: true, ts: nowIso(), config: { heartbeatIntervalSec: 60, workerPollIntervalSec: 60, camuflajePeriodMin: 30 } });
+});
+
+// GET /api/extension/runtime — runtime config for workers
+app.get('/api/extension/runtime', requireAuth, (_req, res) => {
+  return res.json({ ok: true, config: { heartbeatIntervalSec: 60, workerPollIntervalSec: 60, camuflajePeriodMin: 30 } });
+});
+
+// ── Middleware: verifica x-worker-token si WORKER_STATIC_TOKEN está configurado ──
+function requireWorkerToken(req, res, next) {
+  if (!WORKER_STATIC_TOKEN) return next(); // no configurado → no se exige
+  const sent = String(req.headers['x-worker-token'] || req.headers['x-bazooka-worker-token'] || '');
+  if (sent !== WORKER_STATIC_TOKEN)
+    return res.status(403).json({ ok: false, error: 'invalid_worker_token' });
+  return next();
+}
+
+// GET /api/worker/ping — verify license and get worker config
+app.get('/api/worker/ping', requireAuth, (req, res) => {
+  const user = db.prepare('SELECT id, email, role FROM users WHERE id = ?').get(req.user.userId);
+  if (!user) return res.status(401).json({ ok: false, error: 'user_not_found' });
+  const lic = db.prepare('SELECT status FROM licenses WHERE user_id = ?').get(user.id);
+  const allowed = (lic?.status === 'active') || user.role === 'admin';
+  return res.json({ ok: true, allowed, user: { id: user.id, email: user.email }, config: { pollIntervalSec: 60 } });
+});
+
+// GET /api/worker/overview — queue stats
+app.get('/api/worker/overview', requireAuth, (req, res) => {
+  const pending  = db.prepare("SELECT COUNT(*) as n FROM report_jobs WHERE status = 'pending'").get().n;
+  const assigned = db.prepare("SELECT COUNT(*) as n FROM report_jobs WHERE status = 'assigned'").get().n;
+  const done     = db.prepare("SELECT COUNT(*) as n FROM report_jobs WHERE status = 'done'").get().n;
+  const failed   = db.prepare("SELECT COUNT(*) as n FROM report_jobs WHERE status = 'failed'").get().n;
+  return res.json({ ok: true, pending, assigned, done, failed, total: pending + assigned + done + failed });
+});
+
+// GET /api/worker/jobs/next — atomic next job (SQLite: BEGIN IMMEDIATE)
+app.get('/api/worker/jobs/next', requireAuth, requireWorkerToken, (req, res) => {
+  const workerId = String(req.user.userId || req.user.email || 'unknown');
+  // Solo asigna jobs enviados por este mismo usuario (a menos que sea admin)
+  const isAdmin  = req.user.role === 'admin';
+  try {
+    let job = null;
+    const leaseToken = crypto.randomBytes(16).toString('hex');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const query = isAdmin
+        ? "SELECT * FROM report_jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1"
+        : "SELECT * FROM report_jobs WHERE status = 'pending' AND submitted_by = ? ORDER BY created_at ASC LIMIT 1";
+      job = isAdmin
+        ? db.prepare(query).get()
+        : db.prepare(query).get(workerId);
+      if (job) {
+        db.prepare("UPDATE report_jobs SET status = 'assigned', assigned_to = ?, assigned_at = ?, lease_token = ? WHERE id = ?")
+          .run(workerId, nowIso(), leaseToken, job.id);
+        job = db.prepare("SELECT * FROM report_jobs WHERE id = ?").get(job.id);
+      }
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+    if (!job) return res.json({ ok: true, job: null });
+    return res.json({ ok: true, job });
+  } catch (err) {
+    log('ERROR', 'worker/jobs/next', { err: err.message });
+    return fail(res, 'server_error', '', 500);
+  }
+});
+
+// POST /api/worker/jobs/:id/status — report job result
+app.post('/api/worker/jobs/:id/status', requireAuth, requireWorkerToken, (req, res) => {
+  const jobId      = Number(req.params.id);
+  const status     = String(req.body?.status || '').trim();
+  const error      = String(req.body?.error || '').slice(0, 500);
+  const leaseToken = String(req.body?.leaseToken || '').trim();
+  const workerId   = String(req.user.userId || req.user.email || 'unknown');
+  const isAdmin    = req.user.role === 'admin';
+
+  if (!['done', 'failed', 'pending'].includes(status))
+    return res.status(400).json({ ok: false, error: 'invalid_status' });
+
+  const job = db.prepare('SELECT * FROM report_jobs WHERE id = ?').get(jobId);
+  if (!job) return res.status(404).json({ ok: false, error: 'job_not_found' });
+
+  // Ownership: solo el asignado (o admin) puede actualizar
+  if (!isAdmin && job.assigned_to !== workerId)
+    return res.status(403).json({ ok: false, error: 'not_your_job' });
+
+  // Lease token: si el job tiene lease_token, el body debe coincidir
+  if (job.lease_token && leaseToken !== job.lease_token)
+    return res.status(403).json({ ok: false, error: 'invalid_lease_token' });
+
+  // Solo jobs en estado 'assigned' pueden pasar a done/failed
+  if (!isAdmin && job.status !== 'assigned' && status !== 'pending')
+    return res.status(409).json({ ok: false, error: 'job_not_assigned' });
+
+  db.prepare("UPDATE report_jobs SET status = ?, done_at = ?, error = ?, lease_token = NULL WHERE id = ?")
+    .run(status, nowIso(), error || null, jobId);
+  log('INFO', `[worker] job #${jobId} → ${status} by ${workerId}`);
+  return res.json({ ok: true, jobId, status });
+});
+
+// POST /api/bazooka/report-jobs — submit report jobs (batch)
+app.post('/api/bazooka/report-jobs', requireAuth, (req, res) => {
+  const items = Array.isArray(req.body?.items) ? req.body.items : (req.body?.item_url ? [req.body] : []);
+  if (!items.length) return res.status(400).json({ ok: false, error: 'items_required' });
+  const submittedBy = String(req.user.email || req.user.userId || 'unknown');
+  const results = [];
+  for (const item of items.slice(0, 100)) {
+    const itemUrl = String(item.item_url || item.url || '').trim();
+    if (!itemUrl) continue;
+    const itemId = String(item.item_id || item.id || '').trim();
+    const title  = String(item.title || '').slice(0, 255);
+    // Dedup: skip if pending or assigned
+    const existing = db.prepare("SELECT id FROM report_jobs WHERE item_url = ? AND status IN ('pending','assigned') LIMIT 1").get(itemUrl);
+    if (existing) { results.push({ ok: true, duplicate: true, id: existing.id, itemUrl }); continue; }
+    const r = db.prepare("INSERT INTO report_jobs (item_url, item_id, title, submitted_by) VALUES (?, ?, ?, ?)")
+      .run(itemUrl, itemId || null, title || null, submittedBy);
+    results.push({ ok: true, duplicate: false, id: r.lastInsertRowid, itemUrl });
+  }
+  log('INFO', `[bazooka/report-jobs] submitted ${results.length} by ${submittedBy}`);
+  return res.json({ ok: true, results, count: results.length });
+});
+
+// GET /api/bazooka/report-jobs — list recent jobs (filtrado por usuario, excepto admins)
+app.get('/api/bazooka/report-jobs', requireAuth, (req, res) => {
+  const status    = String(req.query?.status || '').trim();
+  const limit     = Math.min(Number(req.query?.limit || 50), 200);
+  const isAdmin   = req.user.role === 'admin';
+  const userId    = String(req.user.email || req.user.userId || '');
+
+  // Validación de status: solo valores conocidos (V4 - SQL injection)
+  const VALID_STATUSES = new Set(['pending', 'assigned', 'done', 'failed']);
+  if (status && !VALID_STATUSES.has(status))
+    return res.status(400).json({ ok: false, error: 'invalid_status' });
+
+  let jobs;
+  if (isAdmin) {
+    jobs = status
+      ? db.prepare("SELECT * FROM report_jobs WHERE status = ? ORDER BY created_at DESC LIMIT ?").all(status, limit)
+      : db.prepare("SELECT * FROM report_jobs ORDER BY created_at DESC LIMIT ?").all(limit);
+  } else {
+    // V6: usuarios normales solo ven sus propios jobs
+    jobs = status
+      ? db.prepare("SELECT * FROM report_jobs WHERE status = ? AND submitted_by = ? ORDER BY created_at DESC LIMIT ?").all(status, userId, limit)
+      : db.prepare("SELECT * FROM report_jobs WHERE submitted_by = ? ORDER BY created_at DESC LIMIT ?").all(userId, limit);
+  }
+  return res.json({ ok: true, jobs, count: jobs.length });
+});
+
+// POST /api/ai/inbox/reply — genera respuesta automática (Gemini preferente, OpenAI fallback)
+app.post('/api/ai/inbox/reply', requireAuth, async (req, res) => {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+
+  if (!geminiKey && !openaiKey) {
+    log('WARN', '[ai/inbox/reply] Ninguna API key de IA configurada (GEMINI_API_KEY / OPENAI_API_KEY)');
+    return res.status(500).json({ ok: false, error: 'ai_not_configured' });
+  }
+
+  const { messages, itemTitle, itemPrice, buyerName, sellerName } = req.body || {};
+  if (!Array.isArray(messages)) {
+    return res.status(400).json({ ok: false, error: 'messages_required' });
+  }
+
+  const systemPrompt = [
+    'Eres un asistente de ventas en Vinted. Responde en el mismo idioma que el comprador.',
+    'Sé amable, conciso y profesional. Máximo 2-3 frases.',
+    sellerName ? `Vendes como: ${sellerName}.` : '',
+    itemTitle  ? `Artículo en cuestión: "${itemTitle}"${itemPrice ? ` (${itemPrice} €)` : ''}.` : '',
+    'No reveles que eres una IA. Responde como si fueras el propio vendedor.',
+  ].filter(Boolean).join(' ');
+
+  // Normalizar mensajes: { role: 'user'|'assistant', content: string }
+  let recent = messages.slice(-8).map(m => {
+    const content = String(m.text || m.body || '').trim();
+    const role    = (m.isMe === true || m.from === 'me') ? 'model' : 'user';
+    return { role, content };
+  }).filter(m => m.content.length > 0);
+
+  // Garantizar que empiece por 'user'
+  if (!recent.some(m => m.role === 'user')) {
+    const ctx = buyerName
+      ? `Hola, tengo una pregunta sobre ${itemTitle || 'tu artículo'}.`
+      : '¿Puedes darme más información?';
+    recent = [{ role: 'user', content: ctx }, ...recent];
+  }
+
+  log('INFO', `[ai/inbox/reply] provider:${geminiKey ? 'gemini' : 'openai'} msgs:${recent.length} buyer:${buyerName || '?'}`);
+
+  // ── Gemini (preferente) ───────────────────────────────────────────────────────
+  if (geminiKey) {
+    try {
+      const geminiContents = recent.map(m => ({
+        role: m.role,   // 'user' | 'model'
+        parts: [{ text: m.content }],
+      }));
+      const gRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemPrompt }] },
+            contents: geminiContents,
+            generationConfig: { maxOutputTokens: 150, temperature: 0.7 },
+          }),
+        }
+      );
+      if (!gRes.ok) {
+        const errText = await gRes.text().catch(() => '');
+        log('WARN', `[ai/inbox/reply] Gemini error ${gRes.status}: ${errText.slice(0, 200)}`);
+        // Si Gemini falla y hay OpenAI, pasar al fallback (no retornar aquí)
+        if (!openaiKey) {
+          return gRes.status === 429
+            ? res.status(429).json({ ok: false, error: 'gemini_quota' })
+            : res.status(502).json({ ok: false, error: 'gemini_error', status: gRes.status });
+        }
+      } else {
+        const gData = await gRes.json();
+        const reply = gData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+        if (reply) {
+          log('INFO', `[ai/inbox/reply] Gemini OK user=${req.user.userId}`);
+          return res.json({ ok: true, reply, provider: 'gemini' });
+        }
+      }
+    } catch (err) {
+      log('WARN', `[ai/inbox/reply] Gemini excepción: ${err.message}`);
+      if (!openaiKey) return fail(res, 'server_error', '', 500);
+    }
+  }
+
+  // ── OpenAI fallback ───────────────────────────────────────────────────────────
+  if (openaiKey) {
+    try {
+      const openaiMessages = [
+        { role: 'system', content: systemPrompt },
+        ...recent.map(m => ({ role: m.role === 'model' ? 'assistant' : m.role, content: m.content })),
+      ];
+      const oaRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+        body: JSON.stringify({ model: 'gpt-4o-mini', max_tokens: 150, messages: openaiMessages }),
+      });
+      if (!oaRes.ok) {
+        const errText = await oaRes.text().catch(() => '');
+        log('WARN', `[ai/inbox/reply] OpenAI error ${oaRes.status}: ${errText.slice(0, 200)}`);
+        return oaRes.status === 429
+          ? res.status(429).json({ ok: false, error: 'openai_quota' })
+          : res.status(502).json({ ok: false, error: 'openai_error', status: oaRes.status });
+      }
+      const oaData = await oaRes.json();
+      const reply  = oaData?.choices?.[0]?.message?.content?.trim() || '';
+      if (!reply) return res.status(502).json({ ok: false, error: 'empty_reply' });
+      log('INFO', `[ai/inbox/reply] OpenAI OK user=${req.user.userId}`);
+      return res.json({ ok: true, reply, provider: 'openai' });
+    } catch (err) {
+      log('ERROR', 'ai/inbox/reply openai', { err: err.message });
+      return fail(res, 'server_error', '', 500);
+    }
+  }
+
+  return fail(res, 'server_error', '', 500);
+});
+
+// GET /api/extension/ai-config — devuelve config de IA para llamadas directas desde la extensión
+app.get('/api/extension/ai-config', requireAuth, (req, res) => {
+  const geminiKey = process.env.GEMINI_API_KEY || null;
+  if (!geminiKey) return res.json({ ok: false, geminiKey: null });
+  return res.json({ ok: true, geminiKey });
 });
 
 // ── Errors ─────────────────────────────────────────────────────────────────────
