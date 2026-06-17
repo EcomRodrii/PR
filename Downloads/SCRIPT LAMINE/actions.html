@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HYPE | LamineResell</title>
+    <link rel="icon" type="image/png" href="icons/icon-pro-32.png" />
+    <link rel="stylesheet" href="actions.css" />
+  </head>
+  <body>
+    <main class="actions-dashboard">
+      <aside class="actions-sidebar">
+        <section class="panel sidebar-brand-panel">
+          <div class="sidebar-brand">
+            <img class="brand-logo" src="assets/logo.png" alt="Logo HYPE LamineResell" />
+            <div>
+              <p class="sidebar-eyebrow">Modulo LamineResell</p>
+              <h2>HYPE</h2>
+              <p class="sidebar-subtitle">
+                Red ligera para lanzar likes y ofertas entre navegadores con licencia y sesion valida.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel sidebar-summary-panel">
+          <div class="panel-head panel-head-compact">
+            <div>
+              <p class="panel-kicker">Resumen operativo</p>
+              <h3>Red en tiempo real</h3>
+            </div>
+          </div>
+          <div class="sidebar-summary-grid">
+            <article class="summary-card">
+              <span>Solicitudes</span>
+              <strong id="summary-requests">0</strong>
+            </article>
+            <article class="summary-card">
+              <span>Workers propios</span>
+              <strong id="summary-own-workers">0</strong>
+            </article>
+            <article class="summary-card">
+              <span>Red online</span>
+              <strong id="summary-network-workers">0</strong>
+            </article>
+            <article class="summary-card">
+              <span>Tareas en curso</span>
+              <strong id="summary-in-progress">0</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel sidebar-account-panel">
+          <div class="panel-head panel-head-compact">
+            <div>
+              <p class="panel-kicker">Cuenta y licencia</p>
+              <h3>Sesion y accesos</h3>
+            </div>
+          </div>
+          <div class="sidebar-account-stack">
+            <div id="account-line" class="account-chip">Cargando cuenta...</div>
+            <div class="status-box">
+              <span>Estado del modulo</span>
+              <strong id="status-line" class="status-line">Preparando modulo...</strong>
+            </div>
+            <div class="meta-stack">
+              <div class="meta-item">
+                <span>Modo</span>
+                <strong>Red publica cooperativa</strong>
+              </div>
+              <div class="meta-item">
+                <span>Operacion</span>
+                <strong>Like + oferta distribuida</strong>
+              </div>
+            </div>
+            <div class="sidebar-nav-actions compact-nav">
+              <a class="ghost-link sidebar-action-link" href="dashboard.html">Volver al dashboard</a>
+              <button id="refresh-btn" class="ghost sidebar-action-link" type="button">Refrescar modulo</button>
+            </div>
+          </div>
+        </section>
+      </aside>
+
+      <section class="actions-main">
+        <header class="panel actions-hero">
+          <div class="hero-copy">
+            <p class="hero-eyebrow">Centro de operaciones</p>
+            <h1>HYPE</h1>
+            <p class="hero-lead">
+              Envia productos a la red y controla desde aqui que navegador recibe la tarea,
+              si hay worker listo y como evoluciona cada solicitud.
+            </p>
+          </div>
+        </header>
+
+        <section class="actions-command-grid">
+          <section class="panel composer-panel panel-elevated">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Centro de envios</p>
+                <h2>Enviar links a la red</h2>
+              </div>
+              <span class="muted">Uno por linea</span>
+            </div>
+
+            <div class="scope-card">
+              <span class="scope-label">Red activa</span>
+              <div class="scope-pill">Red publica cooperativa</div>
+              <p class="field-help">
+                La V1 distribuye las solicitudes entre navegadores cooperativos con sesion Vinted disponible.
+              </p>
+            </div>
+
+            <label class="field field-large">
+              <span>Links de producto</span>
+              <textarea
+                id="urls-input"
+                rows="7"
+                placeholder="https://www.vinted.es/items/123456789-producto"
+              ></textarea>
+            </label>
+
+            <div class="composer-footer">
+              <p id="form-note" class="muted">
+                Solo se aceptan URLs de producto de `vinted.es/items/...`. El modo privado lo dejamos para una fase posterior.
+              </p>
+              <button id="submit-btn" type="button">Enviar a la red</button>
+            </div>
+          </section>
+
+          <section class="panel worker-panel panel-elevated">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Worker automatico</p>
+                <h2>Estado del navegador</h2>
+              </div>
+              <span id="worker-member" class="worker-member-chip">Sin member detectado</span>
+            </div>
+
+            <div class="worker-actions">
+              <button id="join-worker-btn" type="button">Activar worker</button>
+              <button id="check-vinted-btn" class="ghost" type="button">Revisar sesion Vinted</button>
+            </div>
+
+            <div class="worker-diagnostics">
+              <div class="diag-item">
+                <span>Estado</span>
+                <div id="worker-state"></div>
+              </div>
+              <div class="diag-item">
+                <span>Diagnostico</span>
+                <strong id="worker-detail">Preparando diagnostico...</strong>
+              </div>
+            </div>
+
+            <div class="worker-footnote">
+              <span>La extension puede convertirse en worker en cuanto detecta licencia y sesion de Vinted.</span>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel operations-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Entrada de red</p>
+              <h2>Tareas recibidas en este navegador</h2>
+            </div>
+            <span id="incoming-count" class="counter-chip">0</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Estado</th>
+                  <th class="th-thumb">Foto</th>
+                  <th>Item</th>
+                  <th>Producto</th>
+                  <th>De</th>
+                  <th>Claim</th>
+                  <th>Actualizado</th>
+                </tr>
+              </thead>
+              <tbody id="incoming-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ══ SELLER BOT ══════════════════════════════════════════════════ -->
+        <section class="panel seller-bot-panel panel-elevated" id="seller-bot-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Automatización vendedor</p>
+              <h2>Seller Bot — Auto-Ofertas</h2>
+            </div>
+            <span id="seller-bot-status-chip" class="status-line">Desactivado</span>
+          </div>
+
+          <p class="seller-bot-lead">
+            Publica un producto, activa el bot y él solo enviará mensajes u ofertas a cada persona que le dé like —
+            intercalados en 1 hora para no parecer spam. También puede auto-aceptar ofertas entrantes si superan el precio que definas.
+          </p>
+
+          <div class="seller-bot-form">
+            <label class="field">
+              <span>URL de tu producto en Vinted</span>
+              <input id="sbot-product-url" type="url"
+                     placeholder="https://www.vinted.es/items/12345678-mi-producto" />
+            </label>
+
+            <div class="seller-bot-row">
+              <label class="field">
+                <span>Descuento a ofrecer (%)</span>
+                <input id="sbot-discount" type="number" min="0" max="50" value="10" />
+              </label>
+              <label class="field">
+                <span>Likes mínimos para activar</span>
+                <input id="sbot-trigger-likes" type="number" min="1" max="50" value="1" />
+              </label>
+              <label class="field">
+                <span>Máx. mensajes por ciclo</span>
+                <input id="sbot-max-offers" type="number" min="1" max="20" value="10" />
+              </label>
+            </div>
+
+            <label class="field field-large">
+              <span>Mensaje que se enviará</span>
+              <textarea id="sbot-message" rows="3">¡Hola! He visto que te ha interesado mi artículo. Te puedo hacer una oferta especial, ¿te apetece?</textarea>
+            </label>
+
+            <div class="seller-bot-toggles">
+              <label class="toggle-row">
+                <input id="sbot-auto-message" type="checkbox" checked />
+                <span>Enviar mensajes/ofertas automáticamente a nuevos likes</span>
+              </label>
+              <label class="toggle-row">
+                <input id="sbot-auto-accept" type="checkbox" />
+                <span>Auto-aceptar ofertas entrantes si el precio es ≥</span>
+                <input id="sbot-min-accept-price" type="number" min="0" step="0.5" value="0"
+                       class="inline-price-input" placeholder="0.00" />
+                <span>€</span>
+              </label>
+            </div>
+
+            <div class="seller-bot-actions">
+              <button id="sbot-save-btn" type="button">Guardar configuración</button>
+              <button id="sbot-enable-btn" type="button" class="btn-success">Activar bot</button>
+              <button id="sbot-disable-btn" type="button" class="ghost" style="display:none">Desactivar bot</button>
+              <button id="sbot-run-now-btn" type="button" class="ghost">Ejecutar ciclo ahora</button>
+              <button id="sbot-reset-btn" type="button" class="ghost danger-ghost">Resetear estado</button>
+            </div>
+          </div>
+
+          <div class="seller-bot-stats" id="seller-bot-stats">
+            <div class="stat-chip"><span>Likes detectados</span><strong id="sbot-stat-likes">—</strong></div>
+            <div class="stat-chip"><span>Mensajes enviados</span><strong id="sbot-stat-sent">0</strong></div>
+            <div class="stat-chip"><span>Ofertas aceptadas</span><strong id="sbot-stat-accepted">0</strong></div>
+            <div class="stat-chip"><span>Programados</span><strong id="sbot-stat-scheduled">0</strong></div>
+            <div class="stat-chip"><span>Último ciclo</span><strong id="sbot-stat-last">—</strong></div>
+          </div>
+        </section>
+
+        <section class="data-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Solicitudes</p>
+                <h2>Mis solicitudes</h2>
+              </div>
+              <span id="requests-count" class="counter-chip">0</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th class="th-thumb">Foto</th>
+                    <th>Item</th>
+                    <th>Producto</th>
+                    <th>Scope</th>
+                    <th>Tareas</th>
+                    <th>Creado</th>
+                  </tr>
+                </thead>
+                <tbody id="requests-body"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Workers</p>
+                <h2>Mis workers</h2>
+              </div>
+              <span id="workers-count" class="counter-chip">0</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Browser</th>
+                    <th>Member</th>
+                    <th>Estado</th>
+                    <th>Ultima senal</th>
+                  </tr>
+                </thead>
+                <tbody id="workers-body"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="actions.js" type="module"></script>
+  </body>
+</html>

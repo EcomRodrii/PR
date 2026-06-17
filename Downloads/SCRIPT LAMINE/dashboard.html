@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Analisis Rentabilidad</title>
+    <link rel="icon" type="image/png" href="icons/icon-pro-32.png" />
+    <link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body>
+    <section id="setup-screen" class="setup-screen" hidden>
+      <article class="setup-card">
+        <div class="setup-head">
+          <img class="brand-logo" src="assets/logo.png" alt="Logo" />
+          <div>
+            <p class="setup-eyebrow">LamineResell</p>
+            <h2>Nuevo analisis</h2>
+          </div>
+        </div>
+        <div class="setup-form">
+
+          <!-- Producto -->
+          <div class="setup-field-full">
+            <label for="setup-product-name">Producto</label>
+            <input id="setup-product-name" type="text" placeholder="Ej: rayban wayfarer" autocomplete="off" />
+          </div>
+
+          <!-- Fila: Categoría + Coste -->
+          <div class="setup-row-2">
+            <div class="setup-field">
+              <label for="setup-category">Categoría</label>
+              <select id="setup-category">
+                <option value="">Todas las categorías</option>
+                <option value="shoes">👟 Zapatillas</option>
+                <option value="clothing">👕 Ropa</option>
+              </select>
+            </div>
+            <div class="setup-field">
+              <label for="setup-unit-cost">Coste por unidad <span class="setup-label-opt">(opcional)</span></label>
+              <input id="setup-unit-cost" type="text" inputmode="decimal" placeholder="Ej: 18.50" />
+            </div>
+          </div>
+
+          <!-- Rango de precio -->
+          <div class="setup-field-full">
+            <label>Rango de precio <span class="setup-label-opt">(opcional)</span></label>
+            <div class="setup-price-chips">
+              <button type="button" class="setup-price-chip" data-from="10" data-to="49">10€ – 49€</button>
+              <button type="button" class="setup-price-chip" data-from="50" data-to="99">50€ – 99€</button>
+              <button type="button" class="setup-price-chip" data-from="100" data-to="299">100€ – 299€</button>
+              <button type="button" class="setup-price-chip setup-price-chip--clear" id="setup-price-clear">Cualquier precio</button>
+            </div>
+            <div class="setup-price-inputs">
+              <div class="setup-price-field">
+                <span class="setup-price-lbl">Desde (€)</span>
+                <input id="setup-price-from" type="number" inputmode="numeric" min="0" placeholder="0" />
+              </div>
+              <div class="setup-price-sep">—</div>
+              <div class="setup-price-field">
+                <span class="setup-price-lbl">Hasta (€)</span>
+                <input id="setup-price-to" type="number" inputmode="numeric" min="0" placeholder="Sin límite" />
+              </div>
+            </div>
+          </div>
+
+          <button id="setup-start-monitor">Iniciar analisis</button>
+          <p id="setup-msg" class="setup-msg">Filtra por categoría y precio para un análisis más preciso.</p>
+        </div>
+      </article>
+    </section>
+    <section id="setup-loading-overlay" class="setup-loading-overlay" hidden aria-live="polite" aria-busy="true">
+      <div class="setup-loading-card">
+        <span class="setup-loading-spinner" aria-hidden="true"></span>
+        <p class="setup-loading-title">Espera...</p>
+        <p id="setup-loading-text" class="setup-loading-text">Espera a que configuremos todo.</p>
+      </div>
+    </section>
+    <section id="analysis-menu-overlay" class="analysis-menu-overlay" hidden aria-live="polite" aria-busy="true">
+      <article class="analysis-menu-card">
+        <header class="analysis-menu-head">
+          <div>
+            <p class="analysis-menu-kicker">Menu de analisis</p>
+            <h3>Selecciona tu analisis</h3>
+          </div>
+          <button id="analysis-menu-close" class="ghost" type="button">Cerrar</button>
+        </header>
+        <p id="analysis-menu-subtitle" class="analysis-menu-subtitle">
+          Elige crear un analisis nuevo o entrar a uno existente.
+        </p>
+        <div id="analysis-menu-progress" class="analysis-menu-progress" hidden>
+          <div class="analysis-menu-progress-track">
+            <span id="analysis-menu-progress-fill" class="analysis-menu-progress-fill"></span>
+          </div>
+          <p id="analysis-menu-progress-label" class="analysis-menu-progress-label">Procesando...</p>
+        </div>
+        <div id="analysis-menu-list" class="analysis-menu-list"></div>
+        <footer class="analysis-menu-actions">
+          <button id="analysis-menu-create" class="ghost" type="button">Nuevo analisis</button>
+          <button id="analysis-menu-cancel" class="ghost" type="button">Cancelar</button>
+        </footer>
+      </article>
+    </section>
+    <section id="pause-required-overlay" class="pause-required-overlay" hidden aria-live="assertive">
+      <article
+        class="pause-required-card"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="pause-required-title"
+        aria-describedby="pause-required-text"
+      >
+        <button id="pause-required-close" class="ghost pause-required-close" type="button" aria-label="Cerrar aviso">
+          Cerrar
+        </button>
+        <div class="pause-required-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path
+              fill="currentColor"
+              d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.36 13.06-1.3 1.3L12 13.3l-3.06 3.06-1.3-1.3L10.7 12 7.64 8.94l1.3-1.3L12 10.7l3.06-3.06 1.3 1.3L13.3 12l3.06 3.06z"
+            />
+          </svg>
+        </div>
+        <h3 id="pause-required-title">Analisis en curso</h3>
+        <p id="pause-required-text">Primero debes pausar el analisis para volver al menu.</p>
+        <div class="pause-required-actions">
+          <button id="pause-required-ok" type="button">Entendido</button>
+        </div>
+      </article>
+    </section>
+
+    <main class="dashboard-shell">
+      <aside class="dashboard-sidebar">
+        <section class="panel sidebar-brand-panel">
+          <div class="sidebar-brand">
+            <div class="sidebar-brand-top">
+              <img class="brand-logo" src="assets/logo.png" alt="Logo Analisis Rentabilidad" />
+              <div class="sidebar-brand-copy">
+                <p class="sidebar-eyebrow">LamineResell</p>
+                <h1>Analisis Rentabilidad</h1>
+                <p class="sidebar-subtitle">Inteligencia para revendedores en tiempo real.</p>
+              </div>
+            </div>
+            <div class="sidebar-module-btns">
+                <button
+                  id="open-actions-module"
+                  class="ghost sidebar-brand-action"
+                  type="button"
+                  title="Abrir HYPE"
+                  aria-label="Abrir HYPE"
+                >
+                  HYPE
+                </button>
+                <button
+                  id="open-marketplace-sidebar-btn"
+                  class="sidebar-brand-action btn-marketplace"
+                  type="button"
+                  title="Marketplace Analytics"
+                  aria-label="Abrir Marketplace Analytics"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+                    <line x1="6" y1="20" x2="6" y2="14"/>
+                  </svg>
+                  Marketplace
+                </button>
+                <button
+                  id="open-cuenta-vinted-btn"
+                  class="sidebar-brand-action btn-cuenta-vinted"
+                  type="button"
+                  title="Config Cuenta Vinted"
+                  aria-label="Abrir Config Cuenta Vinted"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+                  </svg>
+                  Cuenta Vinted
+                </button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel sidebar-kpis-panel">
+          <p class="panel-title">Resumen rapido</p>
+          <div class="sidebar-kpi-stack">
+            <article class="sidebar-kpi-card">
+              <span>Total detectados</span>
+              <strong id="kpi-total">0</strong>
+            </article>
+            <article class="sidebar-kpi-card">
+              <span>Activos</span>
+              <strong id="kpi-active">0</strong>
+            </article>
+            <article class="sidebar-kpi-card">
+              <span>Vendidos</span>
+              <strong id="kpi-sold">0</strong>
+            </article>
+            <article class="sidebar-kpi-card">
+              <span>Reservados</span>
+              <strong id="kpi-reserved">0</strong>
+            </article>
+            <article class="sidebar-kpi-card">
+              <span>Expirados (24h)</span>
+              <strong id="kpi-expired">0</strong>
+            </article>
+            <article class="sidebar-kpi-card">
+              <span>Cuentas bloqueadas</span>
+              <strong id="kpi-blocked-accounts">0</strong>
+            </article>
+            <article class="sidebar-kpi-card">
+              <span>Tiempo medio venta</span>
+              <strong id="kpi-avg-time">-</strong>
+            </article>
+            <article class="sidebar-kpi-card">
+              <span>Precio medio venta</span>
+              <strong id="kpi-avg-price">-</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel sidebar-profit-panel">
+          <p class="panel-title">Profit de hoy</p>
+          <div class="sidebar-profit-main">
+            <strong id="profit-today-value" data-tone="muted">--</strong>
+            <p id="profit-today-note" class="field-note">Anade tu coste por unidad para ver el profit estimado.</p>
+          </div>
+          <div class="sidebar-profit-meta">
+            <span id="profit-today-units">Ventas hoy: 0</span>
+            <span id="profit-today-cost">Coste por unidad: no configurado</span>
+          </div>
+        </section>
+
+      </aside>
+
+      <section class="dashboard-main">
+        <header class="topbar panel">
+          <div class="brand">
+            <div class="brand-copy">
+              <p class="topbar-kicker">Centro de control</p>
+              <h2>Monitor de oportunidades</h2>
+              <p id="status-line">Sin ejecuciones todavia.</p>
+              <div class="analysis-maturity">
+                <p id="analysis-maturity-note" class="analysis-maturity-note">
+                  Fase de analisis: esperando inicio.
+                </p>
+                <div class="analysis-maturity-bar">
+                  <span id="analysis-maturity-fill" class="analysis-maturity-fill"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="actions">
+              <button id="analysis-menu-btn" class="ghost">Volver al menu</button>
+              <button id="open-marketplace-btn" class="btn-marketplace" type="button" title="Marketplace Analytics">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+                  <line x1="6" y1="20" x2="6" y2="14"/>
+                </svg>
+                Marketplace
+              </button>
+              <button id="start-monitor">Iniciar</button>
+              <button id="stop-monitor" class="ghost">Pausar</button>
+              <button id="export-csv" class="ghost">Exportar informe CSV</button>
+            </div>
+          </div>
+        </header>
+        <section class="panel deterministic-timer-panel" id="deterministic-timer-panel">
+          <div class="deterministic-head">
+            <p class="deterministic-kicker">Madurez 24h</p>
+            <span class="deterministic-live-dot" aria-hidden="true"></span>
+          </div>
+          <p class="deterministic-label">Los datos estaran listos determinadamente en:</p>
+          <p id="deterministic-countdown" class="deterministic-countdown">24:00:00</p>
+          <p id="deterministic-countdown-note" class="deterministic-note">
+            Inicia el monitor para arrancar el temporizador de 24h.
+          </p>
+          <div class="deterministic-progress">
+            <span id="deterministic-progress-fill" class="deterministic-progress-fill"></span>
+          </div>
+        </section>
+        <section class="monitor-config-hidden" hidden aria-hidden="true">
+          <select id="auto-refresh">
+            <option value="15">Cada 15s</option>
+            <option value="30" selected>Cada 30s</option>
+            <option value="60">Cada 60s</option>
+            <option value="120">Cada 120s</option>
+            <option value="0">Pausado</option>
+          </select>
+          <input id="product-name" type="text" />
+          <textarea id="search-urls"></textarea>
+        </section>
+
+        <section class="panel esfuerzo-panel">
+          <div class="esfuerzo-head">
+            <div>
+              <p class="esfuerzo-kicker">Esfuerzo del mercado</p>
+              <h3 class="esfuerzo-title">Actividad de publicaciones por franja horaria</h3>
+            </div>
+            <p class="esfuerzo-peak" id="esfuerzo-peak">—</p>
+          </div>
+          <div id="esfuerzo-chart" class="esfuerzo-chart"></div>
+        </section>
+
+        <section class="dashboard-analytics-grid">
+          <article class="panel keyword-panel trend-main-panel">
+            <div class="keyword-header">
+              <h2>Tendencia de oportunidades</h2>
+              <div class="field compact">
+                <label for="keyword-window">Periodo</label>
+                <select id="keyword-window">
+                  <option value="24h">Ultimas 24h</option>
+                  <option value="7d">Ultimos 7 dias</option>
+                  <option value="30d" selected>Ultimos 30 dias</option>
+                  <option value="all">Todo</option>
+                </select>
+              </div>
+            </div>
+            <div id="keyword-fixed-legend" class="keyword-fixed-legend"></div>
+            <div class="keyword-trend-layout">
+              <div id="keyword-trend-chart" class="line-chart"></div>
+              <div id="keyword-avg-bars" class="keyword-avg-bars"></div>
+            </div>
+          </article>
+        </section>
+
+        <section class="dashboard-mini-charts">
+          <article class="panel">
+            <h2>Top modelos vendidos</h2>
+            <div id="chart-top-models" class="chart-bars"></div>
+          </article>
+          <article class="panel">
+            <h2>Links mas rentables</h2>
+            <div id="chart-rentable-links" class="chart-bars"></div>
+          </article>
+          <article class="panel">
+            <h2>Velocidad de venta (horas)</h2>
+            <div id="chart-speed" class="chart-bars"></div>
+          </article>
+        </section>
+
+        <section class="insights-grid">
+          <article class="panel insight-panel">
+            <div id="insight-saturation" class="insight-output"></div>
+          </article>
+          <article class="panel insight-panel">
+            <div id="insight-publications" class="insight-output"></div>
+          </article>
+          <article class="panel insight-panel">
+            <div id="insight-sales" class="insight-output"></div>
+          </article>
+          <article class="panel insight-panel">
+            <div id="insight-summary" class="insight-output"></div>
+          </article>
+        </section>
+
+        <section id="monitor-panel" class="panel table-panel">
+          <div class="table-head">
+            <h2>Productos monitorizados</h2>
+            <p id="table-count">0 resultados</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="th-thumb">Foto</th>
+                  <th><button class="sort-btn" type="button" data-sort-table="monitored" data-sort-key="itemId">ID</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="monitored" data-sort-key="title">Titulo</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="monitored" data-sort-key="status">Estado producto</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="monitored" data-sort-key="model">Modelo</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="monitored" data-sort-key="price">Precio</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="monitored" data-sort-key="rank">Rank</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="monitored" data-sort-key="detectedAt">Detectado</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="monitored" data-sort-key="timeToSellMinutes">Tiempo venta</button></th>
+                </tr>
+              </thead>
+              <tbody id="items-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel detail-panel">
+          <div class="detail-head">
+            <h2>Detalle temporal por producto</h2>
+            <div class="field compact">
+              <label for="timeline-metric">Metrica</label>
+              <select id="timeline-metric">
+                <option value="likesCount">Likes</option>
+                <option value="offersCount">Ofertas</option>
+                <option value="viewsCount">Visitas</option>
+                <option value="priceValue">Precio</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="detail-empty" class="empty-state">Selecciona un producto de la tabla para ver su evolucion.</div>
+
+          <div id="detail-content" hidden>
+            <a id="detail-link" class="detail-link" href="#" target="_blank" rel="noreferrer"></a>
+            <p id="detail-meta" class="detail-meta"></p>
+            <div id="timeline-stats" class="timeline-stats"></div>
+            <div id="timeline-chart" class="line-chart"></div>
+          </div>
+        </section>
+        <section id="sold-panel" class="panel table-panel sold-panel">
+          <div class="table-head">
+            <h2>Productos vendidos</h2>
+            <p id="sold-count">0 vendidos</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th><button class="sort-btn" type="button" data-sort-table="sold" data-sort-key="itemId">ID</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="sold" data-sort-key="title">Titulo</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="sold" data-sort-key="sellerName">Vendedor</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="sold" data-sort-key="sellerAccountStatus">Cuenta seller</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="sold" data-sort-key="model">Modelo</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="sold" data-sort-key="soldPriceValue">Precio venta</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="sold" data-sort-key="soldAt">Vendido</button></th>
+                  <th><button class="sort-btn" type="button" data-sort-table="sold" data-sort-key="timeToSellMinutes">Tiempo venta</button></th>
+                </tr>
+              </thead>
+              <tbody id="sold-body"></tbody>
+            </table>
+          </div>
+        </section>
+        <section id="blocked-accounts-panel" class="panel table-panel blocked-accounts-panel">
+          <div class="table-head">
+            <h2>Cuentas bloqueadas</h2>
+            <p id="blocked-accounts-count">0 cuentas bloqueadas</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Seller</th>
+                  <th>Estado</th>
+                  <th>Producto asociado</th>
+                  <th>Modelo</th>
+                  <th>Detectado bloqueo</th>
+                  <th>Motivo</th>
+                </tr>
+              </thead>
+              <tbody id="blocked-accounts-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="dashboard.js"></script>
+  </body>
+</html>

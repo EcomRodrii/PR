@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acceso | LamineResell</title>
+    <link rel="icon" type="image/png" href="icons/icon-pro-32.png" />
+    <link rel="stylesheet" href="login.css" />
+  </head>
+  <body>
+    <div class="login-card">
+
+      <div class="login-logo">
+        <img src="assets/logo.png" alt="LamineResell" />
+        <div>
+          <div class="login-logo-text">LamineResell</div>
+          <div class="login-logo-sub">Análisis de Rentabilidad</div>
+        </div>
+      </div>
+
+      <!-- Alerta global -->
+      <div id="alert" class="alert"></div>
+
+      <!-- ── Panel: Login ──────────────────────── -->
+      <div id="panel-login">
+        <h2>Iniciar sesión</h2>
+        <p class="login-desc">Accede con tu cuenta para usar la extensión.</p>
+
+        <div class="field">
+          <label for="login-email">Email</label>
+          <input id="login-email" type="email" placeholder="tu@email.com" autocomplete="email" />
+        </div>
+
+        <div class="field">
+          <label for="login-password">Contraseña</label>
+          <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password" />
+        </div>
+
+        <button id="login-btn" class="btn-primary" type="button">
+          Entrar
+        </button>
+
+        <div class="divider">o</div>
+
+        <div class="toggle-link">
+          ¿Sin cuenta? <button id="go-register" type="button">Crear cuenta</button>
+        </div>
+      </div>
+
+      <!-- ── Panel: Registro ───────────────────── -->
+      <div id="panel-register" class="hidden">
+        <h2>Crear cuenta</h2>
+        <p class="login-desc">Regístrate y el administrador activará tu licencia.</p>
+
+        <div class="field">
+          <label for="reg-email">Email</label>
+          <input id="reg-email" type="email" placeholder="tu@email.com" autocomplete="email" />
+        </div>
+
+        <div class="field">
+          <label for="reg-password">Contraseña</label>
+          <input id="reg-password" type="password" placeholder="Mínimo 8 caracteres" autocomplete="new-password" />
+        </div>
+
+        <div class="field">
+          <label for="reg-password2">Repite contraseña</label>
+          <input id="reg-password2" type="password" placeholder="Repite la contraseña" autocomplete="new-password" />
+        </div>
+
+        <button id="register-btn" class="btn-primary" type="button">
+          Registrarme
+        </button>
+
+        <div class="divider">o</div>
+
+        <div class="toggle-link">
+          ¿Ya tienes cuenta? <button id="go-login" type="button">Iniciar sesión</button>
+        </div>
+      </div>
+
+      <!-- ── Panel: Licencia pendiente ────────── -->
+      <div id="panel-pending" class="hidden">
+        <div class="license-pending">
+          <div class="pending-icon">⏳</div>
+          <p>Sesión iniciada correctamente.<br />
+          Tu licencia está <strong>pendiente de activación</strong>.<br /><br />
+          Contacta con el administrador para que active tu acceso.</p>
+        </div>
+        <button id="pending-logout" class="btn-logout" type="button">Cerrar sesión</button>
+      </div>
+
+    </div>
+
+    <script src="login.js"></script>
+  </body>
+</html>
